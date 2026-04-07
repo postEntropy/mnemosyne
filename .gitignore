@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+venv/
+.venv/
+backend/venv/
+
+# Environment files / secrets
+.env
+*.env
+backend/.env
+frontend/.env
+
+# Databases and local runtime files
+*.db
+*.sqlite
+*.sqlite3
+backend/mnemosyne.db
+
+# Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# Local generated assets
+thumbnails/
+backend/thumbnails/
+
+# Root local notes/docs (do not publish)
+PLAN.md
+IMPLEMENTATION.md
+BACKEND_ARCHITECTURE.md
+TEST_REPORT.md
+session-ses_*.md
