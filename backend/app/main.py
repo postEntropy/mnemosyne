@@ -23,6 +23,7 @@ from app.routers import screenshots, settings
 from app.config import settings as app_settings
 
 worker = QueueWorker()
+watcher_handler = None
 
 
 @asynccontextmanager
@@ -31,8 +32,9 @@ async def lifespan(app: FastAPI):
 
     await run_migrations()
     await worker.start()
-    observer = start_watcher(worker)
+    observer, handler = start_watcher(worker)
     app.state.worker = worker
+    app.state.watcher_handler = handler
     yield
     observer.stop()
     await worker.stop()
@@ -75,9 +77,12 @@ app.include_router(settings.router)
 
 @app.get("/api/status")
 async def status():
+    handler = getattr(app.state, "watcher_handler", None)
+    watcher_paused = handler.paused if handler is not None else False
     return {
         "worker_running": worker.running,
         "is_paused": worker.paused,
+        "watcher_paused": watcher_paused,
         "queue_size": worker.queue.qsize(),
     }
 
@@ -86,6 +91,15 @@ async def status():
 async def toggle_pause():
     new_state = await worker.toggle_pause()
     return {"is_paused": new_state}
+
+
+@app.post("/api/status/toggle-watcher")
+async def toggle_watcher_pause():
+    handler = getattr(app.state, "watcher_handler", None)
+    if handler is None:
+        return {"watcher_paused": False}
+    new_state = handler.toggle_pause()
+    return {"watcher_paused": new_state}
 
 
 @app.get("/api/health")

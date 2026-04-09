@@ -16,6 +16,18 @@ from app.services.providers.prompting import build_analysis_prompt
 
 logger = logging.getLogger("mnemosyne.gemini")
 
+# Ordered fallback chain for Gemini vision calls.
+# Requested: avoid manual model choice and fail over automatically.
+GEMINI_FALLBACK_MODELS = (
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-pro",
+)
+
+
+def get_gemini_fallback_models() -> list[str]:
+    return list(GEMINI_FALLBACK_MODELS)
+
 
 class GeminiProvider(BaseProvider):
     _rate_lock = asyncio.Lock()
@@ -28,13 +40,21 @@ class GeminiProvider(BaseProvider):
         requests_per_minute: int | None = None,
     ):
         self.api_key = (api_key or settings.gemini_api_key).strip()
+        # Model selection is intentionally abstracted to fallback chain.
         self.model = model or settings.gemini_model
         self.requests_per_minute = requests_per_minute or settings.gemini_requests_per_minute
 
-    def _endpoint(self) -> str:
+    def _candidate_models(self) -> list[str]:
+        candidates: list[str] = []
+        for m in GEMINI_FALLBACK_MODELS:
+            if m and m not in candidates:
+                candidates.append(m)
+        return candidates
+
+    def _endpoint(self, model: str) -> str:
         return (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{self.model}:generateContent"
+            f"{model}:generateContent"
         )
 
     async def _respect_rate_limit(self):
@@ -106,32 +126,41 @@ class GeminiProvider(BaseProvider):
             },
         }
 
-        await self._respect_rate_limit()
+        transient_status = {429, 500, 502, 503, 504}
+        errors: list[str] = []
 
         async with httpx.AsyncClient(timeout=180.0) as client:
-            resp = await client.post(
-                self._endpoint(),
-                params={"key": self.api_key},
-                json=payload,
-            )
-            if resp.status_code >= 400:
-                body_preview = (resp.text or "")[:600]
-                logger.error(
-                    "Gemini analyze failed (model=%s, status=%s, body=%s)",
-                    self.model,
-                    resp.status_code,
-                    body_preview,
+            for model in self._candidate_models():
+                await self._respect_rate_limit()
+                resp = await client.post(
+                    self._endpoint(model),
+                    params={"key": self.api_key},
+                    json=payload,
                 )
-                raise RuntimeError(
-                    f"Gemini analyze failed for model '{self.model}' "
-                    f"(HTTP {resp.status_code}): {body_preview}"
-                )
+                if resp.status_code >= 400:
+                    body_preview = (resp.text or "")[:500]
+                    errors.append(f"{model}: HTTP {resp.status_code}")
+                    logger.warning(
+                        "Gemini analyze failed (model=%s, status=%s, body=%s)",
+                        model,
+                        resp.status_code,
+                        body_preview,
+                    )
+                    if resp.status_code in transient_status:
+                        continue
+                    raise RuntimeError(
+                        f"Gemini analyze failed for model '{model}' "
+                        f"(HTTP {resp.status_code}): {body_preview}"
+                    )
 
-            data = resp.json()
-            raw = self._extract_text(data)
-            logger.info(f"Raw response (model={self.model}): {raw[:200]}...")
+                data = resp.json()
+                raw = self._extract_text(data)
+                logger.info("Raw response (model=%s): %s...", model, raw[:200])
+                return self._parse(raw)
 
-        return self._parse(raw)
+        raise RuntimeError(
+            "Gemini analyze failed on all fallback models: " + ", ".join(errors)
+        )
 
     async def test_connection(self) -> tuple[bool, str]:
         if not self.api_key:
@@ -150,6 +179,9 @@ class GeminiProvider(BaseProvider):
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
+                models = self._candidate_models()
+                transient_status = {429, 500, 502, 503, 504}
+
                 if sample_image and sample_image.exists():
                     with open(sample_image, "rb") as f:
                         sample_b64 = base64.b64encode(f.read()).decode()
@@ -174,25 +206,37 @@ class GeminiProvider(BaseProvider):
                         },
                     }
 
-                    resp = await client.post(
-                        self._endpoint(),
-                        params={"key": self.api_key},
-                        json=payload,
-                    )
-                    if resp.status_code >= 400:
-                        body_preview = (resp.text or "")[:400]
+                    errors: list[str] = []
+                    for model in models:
+                        resp = await client.post(
+                            self._endpoint(model),
+                            params={"key": self.api_key},
+                            json=payload,
+                        )
+                        if resp.status_code >= 400:
+                            body_preview = (resp.text or "")[:300]
+                            errors.append(f"{model}: HTTP {resp.status_code}")
+                            if resp.status_code in transient_status:
+                                continue
+                            return (
+                                False,
+                                f"Gemini vision test failed for '{model}' "
+                                f"(HTTP {resp.status_code}): {body_preview}",
+                            )
+
+                        data = resp.json()
+                        raw = self._extract_text(data)
+                        if raw:
+                            return (
+                                True,
+                                f"Connection successful (vision ok via {model})",
+                            )
+
+                    if errors:
                         return (
                             False,
-                            f"Gemini vision test failed for '{self.model}' "
-                            f"(HTTP {resp.status_code}): {body_preview}",
-                        )
-
-                    data = resp.json()
-                    raw = self._extract_text(data)
-                    if raw:
-                        return (
-                            True,
-                            "Connection successful (key valid, model available, image completion ok)",
+                            "Gemini vision test failed on all fallback models: "
+                            + ", ".join(errors),
                         )
 
                 # Fallback: text-only connectivity test when no local image is available.
@@ -207,27 +251,35 @@ class GeminiProvider(BaseProvider):
                         "maxOutputTokens": 32,
                     },
                 }
-                resp = await client.post(
-                    self._endpoint(),
-                    params={"key": self.api_key},
-                    json=text_payload,
-                )
-                if resp.status_code >= 400:
-                    body_preview = (resp.text or "")[:400]
-                    return (
-                        False,
-                        f"Gemini text test failed for '{self.model}' "
-                        f"(HTTP {resp.status_code}): {body_preview}",
+                errors: list[str] = []
+                for model in models:
+                    resp = await client.post(
+                        self._endpoint(model),
+                        params={"key": self.api_key},
+                        json=text_payload,
                     )
+                    if resp.status_code >= 400:
+                        errors.append(f"{model}: HTTP {resp.status_code}")
+                        if resp.status_code in transient_status:
+                            continue
+                        body_preview = (resp.text or "")[:400]
+                        return (
+                            False,
+                            f"Gemini text test failed for '{model}' "
+                            f"(HTTP {resp.status_code}): {body_preview}",
+                        )
 
-                data = resp.json()
-                raw = self._extract_text(data)
-                if not raw:
-                    return (False, "Gemini test returned empty content")
+                    data = resp.json()
+                    raw = self._extract_text(data)
+                    if raw:
+                        return (
+                            True,
+                            f"Connection successful (text fallback ok via {model})",
+                        )
 
                 return (
-                    True,
-                    "Connection successful (text completion ok; no local image sample for vision test)",
+                    False,
+                    "Gemini text fallback failed on all models: " + ", ".join(errors),
                 )
             except Exception as e:
                 logger.exception("Gemini connection test failed (model=%s)", self.model)

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { rescanScreenshot } from '../api'
+import { useEffect, useState } from 'react'
+import { getScreenshot, rescanScreenshot } from '../api'
 
 function normalizeTags(rawTags) {
   if (Array.isArray(rawTags)) return rawTags
@@ -14,17 +14,42 @@ function normalizeTags(rawTags) {
 }
 
 export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDelete }) {
+  const [liveScreenshot, setLiveScreenshot] = useState(screenshot)
   const [rescanning, setRescanning] = useState(false)
   const [rescanError, setRescanError] = useState('')
-  const tags = normalizeTags(screenshot.tags)
+  const tags = normalizeTags(liveScreenshot.tags)
+
+  useEffect(() => {
+    setLiveScreenshot(screenshot)
+  }, [screenshot])
+
+  useEffect(() => {
+    const status = liveScreenshot?.status
+    if (status !== 'pending' && status !== 'processing') return
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await getScreenshot(liveScreenshot.id)
+        setLiveScreenshot(res.data)
+      } catch (e) {
+        console.error(e)
+      }
+    }, 2000)
+
+    return () => clearInterval(interval)
+  }, [liveScreenshot?.id, liveScreenshot?.status])
 
   const handleRescan = async () => {
     setRescanning(true)
     setRescanError('')
     try {
-      await rescanScreenshot(screenshot.id)
-      onRefresh()
-      // Note: We don't close, user can wait for update
+      await rescanScreenshot(liveScreenshot.id)
+      setLiveScreenshot((prev) => ({
+        ...prev,
+        status: 'pending',
+        error_message: null,
+      }))
+      await onRefresh()
     } catch (e) {
       console.error(e)
       setRescanError('Nao foi possivel atualizar a analise desta captura.')
@@ -33,10 +58,10 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
     }
   }
 
-  const encodedPath = encodeURIComponent(screenshot.file_path)
+  const encodedPath = encodeURIComponent(liveScreenshot.file_path)
   const fullImageSrc = `http://localhost:8000/screenshots-file/${encodedPath}`
 
-  const formattedDate = new Date(screenshot.timestamp).toLocaleDateString('en-US', {
+  const formattedDate = new Date(liveScreenshot.timestamp).toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
@@ -46,7 +71,7 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
   })
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <div className="min-h-screen bg-[#fdfcfb] flex flex-col">
       <header className="glass border-b border-[#f1f2f6] px-8 py-4 flex items-center justify-between sticky top-0 z-20">
         <button
           onClick={onClose}
@@ -78,26 +103,26 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
 
       <div className="flex-grow flex flex-col lg:flex-row overflow-hidden">
         {/* Image Side */}
-        <div className="flex-grow bg-[#f8f9fa] p-8 lg:p-12 flex items-center justify-center overflow-auto custom-scrollbar">
+        <div className="flex-grow bg-[#f8f9fa] p-6 lg:p-10 flex items-center justify-center overflow-hidden">
           <div className="relative group max-w-full">
             <img
               src={fullImageSrc}
-              alt={screenshot.filename}
-              className="max-w-full shadow-2xl rounded-sm border border-[#dfe6e9]"
+              alt={liveScreenshot.filename}
+              className="max-w-full max-h-[calc(100vh-10rem)] lg:max-h-[calc(100vh-8rem)] object-contain shadow-2xl rounded-sm border border-[#dfe6e9]"
             />
-            <div className="absolute top-4 left-4 glass px-4 py-2 rounded-full text-[10px] font-bold uppercase tracking-widest text-[#2d3436]">
-              {screenshot.application || 'Capture'}
+            <div className="absolute top-4 left-4 bg-[#1a1c1d]/82 backdrop-blur-md px-4 py-2 rounded-full text-[10px] font-bold uppercase tracking-widest text-white border border-white/20 shadow-lg">
+              {liveScreenshot.application || 'Capture'}
             </div>
           </div>
         </div>
 
         {/* Info Side */}
-        <div className="w-full lg:w-[450px] border-l border-[#f1f2f6] flex flex-col h-full bg-white">
+        <div className="w-full lg:w-[450px] border-l border-[#f1f2f6] flex flex-col h-full glass-strong">
           <div className="p-8 space-y-10 overflow-y-auto custom-scrollbar">
             <section className="space-y-4">
               <div className="space-y-1">
                 <p className="text-[10px] font-bold text-[#b2bec3] uppercase tracking-[0.2em] font-sans">Moment Captured</p>
-                <h2 className="text-xl font-serif italic text-[#2d3436] font-bold leading-tight">{screenshot.summary || 'Unidentified Activity'}</h2>
+                <h2 className="text-[1.25rem] font-serif text-[#2d3436] font-semibold leading-snug tracking-tight">{liveScreenshot.summary || 'Unidentified Activity'}</h2>
                 <p className="text-xs text-[#636e72] font-medium">{formattedDate}</p>
               </div>
               
@@ -117,7 +142,7 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
               <p className="text-[10px] font-bold text-[#b2bec3] uppercase tracking-[0.2em] font-sans">AI Narrative</p>
               <div className="bg-[#fcfaf7] p-6 rounded-2xl border border-[#f1f2f6] shadow-sm">
                 <p className="text-sm text-[#2d3436] leading-relaxed font-serif italic whitespace-pre-wrap">
-                  {screenshot.description || "The soul of this capture is still being contemplated..."}
+                  {liveScreenshot.description || "The soul of this capture is still being contemplated..."}
                 </p>
               </div>
               {rescanError && (
@@ -128,17 +153,17 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
             <section className="space-y-4">
               <p className="text-[10px] font-bold text-[#b2bec3] uppercase tracking-[0.2em] font-sans">Artifact Details</p>
               <div className="space-y-3">
-                <DetailRow label="Application" value={screenshot.application || 'App not detected'} />
-                <DetailRow label="Filename" value={screenshot.filename} />
-                <DetailRow label="Status" value={screenshot.status} color={getStatusColor(screenshot.status)} />
-                <DetailRow label="Storage Path" value={screenshot.file_path} isPath />
+                <DetailRow label="Application" value={liveScreenshot.application || 'App not detected'} />
+                <DetailRow label="Filename" value={liveScreenshot.filename} />
+                <DetailRow label="Status" value={liveScreenshot.status} color={getStatusColor(liveScreenshot.status)} />
+                <DetailRow label="Storage Path" value={liveScreenshot.file_path} isPath />
               </div>
             </section>
 
-            {screenshot.status === 'error' && (
+            {liveScreenshot.status === 'error' && (
               <section className="bg-rose-50 p-6 rounded-2xl border border-rose-100">
                 <p className="text-[10px] font-bold text-rose-400 uppercase tracking-widest mb-2">Error Encountered</p>
-                <p className="text-xs text-rose-700 font-medium italic">{screenshot.error_message}</p>
+                <p className="text-xs text-rose-700 font-medium italic">{liveScreenshot.error_message}</p>
               </section>
             )}
           </div>

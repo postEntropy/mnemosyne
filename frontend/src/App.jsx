@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import ScreenshotList from './components/ScreenshotList'
 import SearchBar from './components/SearchBar'
 import ScreenshotDetail from './components/ScreenshotDetail'
@@ -6,7 +6,19 @@ import Settings from './components/Settings'
 import Stats from './components/Stats'
 import OnboardingModal from './components/OnboardingModal'
 import AskArchivePanel from './components/AskArchivePanel'
-import { getScreenshots, getStats, getTags, scanFolder, getScanProgress, getOnboardingInfo, getSettings, getStatus, togglePause, getHealth, searchScreenshots, ignoreOnboardingPending, askArchive } from './api'
+import { getScreenshots, getScreenshot, getStats, getTags, scanFolder, getScanProgress, getOnboardingInfo, getSettings, getStatus, togglePause, toggleWatcherPause, getHealth, searchScreenshots, ignoreOnboardingPending, askArchive } from './api'
+
+function normalizeTags(rawTags) {
+  if (Array.isArray(rawTags)) return rawTags
+  if (typeof rawTags !== 'string') return []
+
+  try {
+    const parsed = JSON.parse(rawTags)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
 
 export default function App() {
   const [screenshots, setScreenshots] = useState([])
@@ -17,19 +29,21 @@ export default function App() {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [searchQuery, setSearchQuery] = useState('')
-  const [activeTag, setActiveTag] = useState(null)
+  const [activeTags, setActiveTags] = useState([])
   const [statusFilter, setStatusFilter] = useState(null)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [loading, setLoading] = useState(true)
   const [scanning, setScanning] = useState(false)
   const [paused, setPaused] = useState(false)
+  const [watcherPaused, setWatcherPaused] = useState(false)
   const [scanProgress, setScanProgress] = useState(null)
   const [onboarding, setOnboarding] = useState(null)
   const [onboardingDismissed, setOnboardingDismissed] = useState(false)
   const [health, setHealth] = useState(null)
   const [uiError, setUiError] = useState('')
   const [showAsk, setShowAsk] = useState(true)
+  const [viewMode, setViewMode] = useState('grid')
   const [askLoading, setAskLoading] = useState(false)
   const [askAnswer, setAskAnswer] = useState('')
   const [askMatches, setAskMatches] = useState([])
@@ -46,6 +60,37 @@ export default function App() {
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
   }, [])
+
+  useEffect(() => {
+    if (!routePath.startsWith('/screenshot/')) {
+      if (selected) setSelected(null)
+      return
+    }
+
+    const idPart = routePath.split('/')[2]
+    const screenshotId = Number(idPart)
+    if (!Number.isFinite(screenshotId)) {
+      window.history.replaceState({}, '', '/')
+      setRoutePath('/')
+      return
+    }
+
+    if (selected?.id === screenshotId) return
+
+    const existing = screenshots.find((ss) => ss.id === screenshotId)
+    if (existing) {
+      setSelected(existing)
+      return
+    }
+
+    getScreenshot(screenshotId)
+      .then((res) => setSelected(res.data))
+      .catch(() => {
+        setUiError('Nao foi possivel abrir esta captura.')
+        window.history.replaceState({}, '', '/')
+        setRoutePath('/')
+      })
+  }, [routePath, screenshots, selected])
 
   const loadData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -64,6 +109,7 @@ export default function App() {
       setStats(statsRes.data)
       setTags(tagsRes.data.tags)
       setPaused(statusRes.data.is_paused)
+      setWatcherPaused(Boolean(statusRes.data.watcher_paused))
       setHealth(healthRes?.data)
     } catch (e) {
       console.error(e)
@@ -170,7 +216,7 @@ export default function App() {
     setSearchQuery(q)
     setPage(1)  // Reset to first page for new searches
     if (!q) {
-      setActiveTag(null)
+      setActiveTags([])
       setLoading(true)
       try {
         const res = await getScreenshots(1, 24, statusFilter, dateFrom, dateTo)
@@ -212,15 +258,31 @@ export default function App() {
   }
 
   const handleTagClick = (tag) => {
-    if (activeTag === tag) {
-      setActiveTag(null)
-      loadData()
-    } else {
-      setActiveTag(tag)
-      setSearchQuery(tag)
-      handleSearch(tag)
-    }
+    setPage(1)
+    setSearchQuery('')
+    setShowAsk(false)
+    setActiveTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
   }
+
+  const conceptTags = useMemo(() => tags.filter((tag) => tag && tag !== '#'), [tags])
+
+  const filteredScreenshots = useMemo(() => {
+    if (activeTags.length === 0) return screenshots
+    return screenshots.filter((ss) => {
+      const ssTags = normalizeTags(ss.tags)
+      return activeTags.every((tag) => ssTags.includes(tag))
+    })
+  }, [screenshots, activeTags])
+
+  const openScreenshot = useCallback((screenshot) => {
+    setSelected(screenshot)
+    navigate(`/screenshot/${screenshot.id}`)
+  }, [navigate])
+
+  const closeScreenshot = useCallback(() => {
+    setSelected(null)
+    navigate('/')
+  }, [navigate])
 
   const handleScanFolder = async () => {
     setScanning(true)
@@ -263,6 +325,16 @@ export default function App() {
     }
   }
 
+  const handleToggleWatcherPause = async () => {
+    try {
+      const res = await toggleWatcherPause()
+      setWatcherPaused(Boolean(res.data.watcher_paused))
+    } catch (e) {
+      console.error(e)
+      setUiError('Nao foi possivel alternar pausa do watcher.')
+    }
+  }
+
   const handleAskArchive = async (question) => {
     setAskLoading(true)
     try {
@@ -287,7 +359,7 @@ export default function App() {
     return (
       <ScreenshotDetail
         screenshot={selected}
-        onClose={() => setSelected(null)}
+        onClose={closeScreenshot}
         onRefresh={() => loadData(true)}
         onDelete={handleDelete}
       />
@@ -305,11 +377,11 @@ export default function App() {
   return (
     <div className="flex h-screen bg-[#fdfcfb] overflow-hidden selection:bg-[#1a1c1d] selection:text-white">
       {/* SIDEBAR */}
-      <aside className="w-72 border-r border-[#f0ede9] flex flex-col bg-[#fdfcfb] z-20 relative">
+      <aside className="w-72 border-r border-[#f0ede9] flex flex-col glass-strong z-20 relative">
         <div className="px-10 pt-10 pb-6">
           <div className="space-y-2">
             <h1 className="text-3xl font-bold tracking-tight text-[#1a1c1d] leading-none">Mnemosyne</h1>
-            <p className="text-[9px] uppercase tracking-[0.45em] text-[#94999e] font-bold opacity-70">The Memory Archive</p>
+            <p className="text-[9px] uppercase tracking-[0.45em] text-[#7f868d] font-bold opacity-80">The Memory Archive</p>
           </div>
           <div className="mt-6 h-px w-full bg-gradient-to-r from-transparent via-[#f0ede9] to-transparent" />
         </div>
@@ -317,7 +389,7 @@ export default function App() {
         <nav className="flex-grow overflow-y-auto px-6 space-y-10 custom-scrollbar pb-8 pt-2">
           {/* Main Navigation Section */}
           <div className="space-y-4">
-            <p className="px-4 text-[9px] font-bold text-[#94999e] uppercase tracking-[0.35em] opacity-50">Collections</p>
+            <p className="px-4 text-[9px] font-bold text-[#7f868d] uppercase tracking-[0.35em] opacity-80">Collections</p>
             <div className="space-y-1">
               {navigation.map((item) => {
                 const isActive = (item.id === 'ask' && showAsk) || (statusFilter === item.id && !showAsk)
@@ -335,20 +407,20 @@ export default function App() {
                       }
                       setPage(1);
                     }}
-                    className={`w-full relative flex items-center justify-between pl-4 pr-4 py-3 rounded-2xl transition-all duration-500 group ${
+                    className={`w-full relative overflow-hidden flex items-center justify-between pl-5 pr-4 py-3 rounded-2xl transition-all duration-500 group ${
                       isActive
                         ? 'bg-white/80 shadow-[0_10px_30px_-18px_rgba(15,23,42,0.10)] border border-[#f0ede9] text-[#1a1c1d]'
-                        : 'text-[#94999e] hover:text-[#1a1c1d]'
+                        : 'text-[#7f868d] hover:text-[#1a1c1d]'
                     }`}
                   >
                     <span
-                      className={`absolute left-0 top-1/2 -translate-y-1/2 h-7 w-[2px] rounded-full transition-all duration-500 ${
-                        isActive ? 'bg-[#b45309] opacity-70' : 'bg-transparent opacity-0 group-hover:opacity-30 group-hover:bg-[#c9c7c3]'
+                      className={`absolute left-2 top-1/2 -translate-y-1/2 h-5 w-[2px] rounded-full transition-all duration-500 ${
+                        isActive ? 'bg-[#b45309] opacity-85' : 'bg-transparent opacity-0 group-hover:opacity-35 group-hover:bg-[#b45309]/28'
                       }`}
                     />
                     <div className="flex items-center gap-4 min-w-0">
                       <svg className={`w-5 h-5 flex-shrink-0 transition-colors duration-500 ${
-                        isActive ? 'text-[#1a1c1d]' : 'text-[#c9c7c3] group-hover:text-[#94999e]'
+                        isActive ? 'text-[#1a1c1d]' : 'text-[#a3abb2] group-hover:text-[#7f868d]'
                       }`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.2} d={item.icon} />
                       </svg>
@@ -358,7 +430,7 @@ export default function App() {
                       <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border transition-colors ${
                         isActive
                           ? 'bg-white border-[#f0ede9] text-[#1a1c1d] opacity-90'
-                          : 'bg-transparent border-transparent text-[#94999e] opacity-60 group-hover:bg-white group-hover:border-[#f0ede9]'
+                          : 'bg-transparent border-transparent text-[#7f868d] opacity-70 group-hover:bg-white group-hover:border-[#f0ede9]'
                       }`}>
                         {item.count.toLocaleString()}
                       </span>
@@ -368,37 +440,15 @@ export default function App() {
               })}
             </div>
           </div>
-
-          {/* Tags Cloud */}
-          {tags.length > 0 && (
-            <div className="space-y-4">
-              <p className="px-4 text-[9px] font-bold text-[#94999e] uppercase tracking-[0.35em] opacity-50">Concepts</p>
-              <div className="flex flex-wrap gap-2 px-2 pb-2">
-                {tags.slice(0, 15).map((tag) => (
-                  <button
-                    key={tag}
-                    onClick={() => handleTagClick(tag)}
-                    className={`px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all duration-500 ${
-                      activeTag === tag
-                        ? 'bg-[#1a1c1d] text-white'
-                        : 'bg-white/70 text-[#94999e] border border-[#f0ede9] hover:border-[#1a1c1d] hover:text-[#1a1c1d]'
-                    }`}
-                  >
-                    #{tag}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </nav>
 
         {/* Footer Actions */}
-        <div className="p-7 border-t border-[#f0ede9] bg-white/50 backdrop-blur-sm space-y-3">
-          <p className="px-1 text-[9px] font-bold text-[#94999e] uppercase tracking-[0.35em] opacity-50">Actions</p>
+        <div className="p-7 border-t border-[#f0ede9] glass-soft space-y-3">
+          <p className="px-1 text-[9px] font-bold text-[#7f868d] uppercase tracking-[0.35em] opacity-80">Actions</p>
           {scanning && scanProgress && (
             <div className="px-2 mb-6 space-y-3">
                <div className="space-y-1.5">
-                  <div className="flex justify-between text-[8px] font-bold text-[#94999e] uppercase tracking-widest">
+                  <div className="flex justify-between text-[8px] font-bold text-[#7f868d] uppercase tracking-widest">
                     <span>{paused ? 'Memories Paused' : 'Restoring Memories'}</span>
                     <span>{Math.round((scanProgress.done/scanProgress.total)*100 || 0)}%</span>
                   </div>
@@ -412,7 +462,7 @@ export default function App() {
                
                <button 
                  onClick={handleTogglePause}
-                 className="w-full text-[8px] font-bold text-[#94999e] hover:text-[#1a1c1d] uppercase tracking-widest transition py-1"
+                 className="w-full text-[8px] font-bold text-[#7f868d] hover:text-[#1a1c1d] uppercase tracking-widest transition py-1"
                >
                   {paused ? 'Resume Analysis' : 'Pause Analysis'}
                </button>
@@ -426,6 +476,12 @@ export default function App() {
             {scanning ? (paused ? 'Archive Paused' : 'Flux...') : 'Scan Library'}
           </button>
           <button
+            onClick={handleToggleWatcherPause}
+            className="w-full btn-secondary text-[10px] py-2.5"
+          >
+            {watcherPaused ? 'Resume Watcher' : 'Pause Watcher'}
+          </button>
+          <button
             onClick={() => navigate('/settings')}
             className="w-full btn-primary text-[10px] py-2.5"
           >
@@ -435,7 +491,12 @@ export default function App() {
       </aside>
 
       {/* MAIN CONTENT */}
-      <main className="flex-grow flex flex-col min-w-0 bg-[#fdfcfb] relative overflow-hidden">
+      <main className="flex-grow flex flex-col min-w-0 bg-[#fdfcfb]/90 backdrop-blur-md relative overflow-hidden">
+        {showAsk && (
+          <>
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_15%,rgba(180,83,9,0.05),transparent_45%),radial-gradient(circle_at_80%_30%,rgba(26,28,29,0.04),transparent_50%)]" />
+          </>
+        )}
         <div className={`flex-grow overflow-y-auto custom-scrollbar ${showAsk ? 'p-0' : 'p-12 md:p-16'}`}>
           {showAsk && (
             <AskArchivePanel
@@ -444,7 +505,7 @@ export default function App() {
               answer={askAnswer}
               matches={askMatches}
               provider={askProvider}
-              onOpenMatch={setSelected}
+              onOpenMatch={openScreenshot}
               dateFrom={dateFrom}
               setDateFrom={(v) => { setDateFrom(v); setPage(1); }}
               dateTo={dateTo}
@@ -474,7 +535,39 @@ export default function App() {
                 <p className="text-[10px] font-bold text-[#94999e] uppercase tracking-[0.4em]">Archive Timeline</p>
                 <h2 className="text-2xl font-serif italic text-[#1a1c1d] mt-1">Historical Perspective</h2>
               </div>
-              <SearchBar onSearch={handleSearch} query={searchQuery} />
+              <div className="flex items-center gap-3 w-full max-w-4xl justify-end">
+                <div className="flex items-center gap-1 rounded-2xl border border-[#ece7dd] bg-white/80 p-1.5 shadow-sm">
+                  <button
+                    onClick={() => setViewMode('grid')}
+                    className={`h-9 w-9 rounded-xl transition-all duration-300 flex items-center justify-center ${
+                      viewMode === 'grid'
+                        ? 'bg-[#1a1c1d] text-white'
+                        : 'text-[#7f868d] hover:text-[#1a1c1d] hover:bg-white'
+                    }`}
+                    aria-label="Grid view"
+                    title="Grid view"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm10 0h6v6h-6v-6z" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => setViewMode('list')}
+                    className={`h-9 w-9 rounded-xl transition-all duration-300 flex items-center justify-center ${
+                      viewMode === 'list'
+                        ? 'bg-[#1a1c1d] text-white'
+                        : 'text-[#7f868d] hover:text-[#1a1c1d] hover:bg-white'
+                    }`}
+                    aria-label="List view"
+                    title="List view"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />
+                    </svg>
+                  </button>
+                </div>
+                <SearchBar onSearch={handleSearch} query={searchQuery} />
+              </div>
             </div>
           )}
 
@@ -497,12 +590,38 @@ export default function App() {
                 </div>
               </div>
             ) : (
-              <div className={`space-y-16 transition-opacity duration-300 ${loading ? 'opacity-50' : 'opacity-100'}`}>
-                <ScreenshotList
-                  screenshots={screenshots}
-                  onSelect={setSelected}
-                  onRefresh={() => loadData(true)}
-                />
+              <div className={`space-y-16 transition-all duration-500 ${loading ? 'opacity-50' : 'opacity-100'} ${showAsk ? 'mt-8 md:mt-12 pb-20' : ''}`}>
+                <div className={tags.length > 0 ? 'space-y-6' : ''}>
+                  {conceptTags.length > 0 && (
+                    <div className="px-5 md:px-8 xl:px-12 2xl:px-16">
+                      <div className="rounded-2xl border border-[#ece7dd] bg-white/62 backdrop-blur-md px-5 py-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="mr-3 text-[9px] font-bold text-[#7f868d] uppercase tracking-[0.35em] opacity-90">Concepts</span>
+                          {conceptTags.slice(0, 18).map((tag) => (
+                            <button
+                              key={tag}
+                              onClick={() => handleTagClick(tag)}
+                              className={`px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all duration-500 ${
+                                activeTags.includes(tag)
+                                  ? 'bg-[#1a1c1d] text-white'
+                                  : 'bg-white/80 text-[#7f868d] border border-[#ece7dd] hover:border-[#1a1c1d] hover:text-[#1a1c1d]'
+                              }`}
+                            >
+                              #{tag}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <ScreenshotList
+                    screenshots={filteredScreenshots}
+                    onSelect={openScreenshot}
+                    onRefresh={() => loadData(true)}
+                    viewMode={viewMode}
+                  />
+                </div>
 
                 <div className="flex justify-center items-center gap-12 pb-16 border-t border-[#f1f2f6] pt-12">
                   <button

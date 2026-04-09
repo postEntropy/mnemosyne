@@ -20,9 +20,19 @@ class ScreenshotHandler(FileSystemEventHandler):
     def __init__(self, worker: QueueWorker, loop: asyncio.AbstractEventLoop):
         self.worker = worker
         self._loop = loop
+        self.paused = False
         self._seen: dict[str, float] = {}
         self._seen_lock = threading.Lock()
         self._seen_ttl_seconds = 30
+
+    def set_paused(self, paused: bool):
+        self.paused = paused
+
+    def toggle_pause(self) -> bool:
+        self.paused = not self.paused
+        state = "paused" if self.paused else "resumed"
+        logger.info(f"Watcher {state}.")
+        return self.paused
 
     def _should_process(self, file_path: str) -> bool:
         now = time.time()
@@ -43,6 +53,8 @@ class ScreenshotHandler(FileSystemEventHandler):
         return file_path.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))
 
     def on_closed(self, event):
+        if self.paused:
+            return
         if event.is_directory:
             return
         if not self._is_supported_file(event.src_path):
@@ -53,6 +65,8 @@ class ScreenshotHandler(FileSystemEventHandler):
         self._handle_file(event.src_path)
 
     def on_created(self, event):
+        if self.paused:
+            return
         if event.is_directory:
             return
         if not self._is_supported_file(event.src_path):
@@ -63,6 +77,8 @@ class ScreenshotHandler(FileSystemEventHandler):
         self._handle_file(event.src_path)
 
     def on_moved(self, event):
+        if self.paused:
+            return
         if event.is_directory:
             return
         dest_path = getattr(event, "dest_path", None)
@@ -118,7 +134,7 @@ class ScreenshotHandler(FileSystemEventHandler):
         await self.worker.enqueue(file_path)
 
 
-def start_watcher(worker: QueueWorker) -> Observer:
+def start_watcher(worker: QueueWorker) -> tuple[Observer, ScreenshotHandler]:
     watch_dir = Path(settings.screenshots_dir)
     watch_dir.mkdir(parents=True, exist_ok=True)
 
@@ -132,4 +148,4 @@ def start_watcher(worker: QueueWorker) -> Observer:
     observer = Observer()
     observer.schedule(handler, str(watch_dir), recursive=False)
     observer.start()
-    return observer
+    return observer, handler

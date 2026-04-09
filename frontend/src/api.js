@@ -40,6 +40,8 @@ export const getStatus = () => api.get('/status')
 
 export const togglePause = () => api.post('/status/toggle-pause')
 
+export const toggleWatcherPause = () => api.post('/status/toggle-watcher')
+
 export const scanFolder = (batchSize = 50, batchIndex = 0) =>
   api.post('/screenshots/scan-folder', null, { params: { batch_size: batchSize, batch_index: batchIndex } })
 
