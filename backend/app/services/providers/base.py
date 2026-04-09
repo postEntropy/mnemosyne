@@ -16,5 +16,5 @@ class BaseProvider(ABC):
         pass
 
     @abstractmethod
-    async def test_connection(self) -> bool:
+    async def test_connection(self) -> tuple[bool, str]:
         pass

@@ -3,56 +3,112 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --paper-bg: #fdfcfb;
+    --paper-border: #f0ede9;
+    --ink-dark: #1a1c1d;
+    --ink-medium: #4a4e52;
+    --ink-light: #94999e;
+    --accent: #5e6472;
+  }
+
   body {
-    @apply font-sans antialiased bg-[#fcfaf7] text-[#2d3436];
+    @apply font-sans antialiased bg-[#fdfcfb] text-[#1a1c1d];
+    background-image: url("https://www.transparenttextures.com/patterns/natural-paper.png");
   }
 
   h1, h2, h3, h4, h5, h6 {
-    @apply font-serif;
+    @apply font-serif tracking-tight;
   }
 }
 
 @layer components {
+  /* Sophisticated Shadow System */
+  .shadow-archive {
+    box-shadow: 0 1px 2px rgba(0,0,0,0.02), 
+                0 4px 12px rgba(0,0,0,0.03), 
+                0 12px 24px rgba(0,0,0,0.04);
+  }
+
+  .shadow-archive-hover {
+    box-shadow: 0 1px 2px rgba(0,0,0,0.02), 
+                0 8px 16px rgba(0,0,0,0.04), 
+                0 24px 48px rgba(0,0,0,0.06);
+  }
+
   .btn-primary {
-    @apply px-4 py-2 text-sm font-medium bg-[#2d3436] text-white rounded-full hover:bg-[#4a4e69] transition duration-300 shadow-sm hover:shadow-md disabled:opacity-50;
+    @apply px-6 py-3 text-xs font-bold uppercase tracking-[0.2em] bg-[#1a1c1d] text-white rounded-xl hover:bg-[#2d3436] transition-all duration-500 shadow-lg shadow-black/5 hover:shadow-black/10 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-30;
   }
 
   .btn-secondary {
-    @apply px-4 py-2 text-sm font-medium bg-white border border-[#dcdde1] text-[#2d3436] rounded-full hover:border-[#2d3436] transition duration-300 shadow-sm hover:shadow-md disabled:opacity-50;
+    @apply px-6 py-3 text-xs font-bold uppercase tracking-[0.2em] bg-white border border-[#f0ede9] text-[#1a1c1d] rounded-xl hover:border-[#1a1c1d] transition-all duration-500 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-30;
   }
 
-  .card {
-    @apply bg-white rounded-xl border border-[#f1f2f6] shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden;
+  .card-archive {
+    @apply bg-white rounded-3xl border border-[#f0ede9] transition-all duration-700 overflow-hidden;
+    box-shadow: 0 4px 20px -5px rgba(0,0,0,0.03);
   }
 
-  .input-field {
-    @apply bg-white border border-[#dcdde1] rounded-full px-5 py-2 text-sm focus:outline-none focus:border-[#2d3436] transition duration-200;
+  .card-archive:hover {
+    @apply border-[#e0deda];
+    box-shadow: 0 20px 40px -15px rgba(0,0,0,0.06);
   }
 
-  .badge {
-    @apply px-3 py-1 text-[10px] font-semibold rounded-full uppercase tracking-wider;
+  .input-archive {
+    @apply bg-white/50 backdrop-blur-sm border border-[#f0ede9] rounded-2xl px-6 py-3 text-sm focus:outline-none focus:border-[#1a1c1d] focus:bg-white transition-all duration-500 font-serif italic;
   }
 
-  .glass {
-    @apply bg-white/70 backdrop-blur-md border border-white/20;
+  .glass-paper {
+    @apply bg-white/90 backdrop-blur-xl border border-white/40;
   }
+
+  /* AI Sanctum Light Styles */
+  .card-premium {
+    @apply bg-white border border-[#e8e2d9] rounded-3xl transition-all duration-700 shadow-[0_8px_30px_-10px_rgba(15,23,42,0.05)];
+  }
+
+  .card-premium:hover {
+    @apply border-[#b45309]/30 -translate-y-2 shadow-[0_30px_60px_-15px_rgba(15,23,42,0.12)];
+  }
+
+  .glow-amber-text {
+    text-shadow: 0 0 20px rgba(180, 83, 9, 0.1);
+  }
+
+  .paper-illuminated {
+    @apply bg-white border-2 border-[#b45309]/10 rounded-[3rem] shadow-[0_40px_100px_-20px_rgba(15,23,42,0.15)];
+    background-image: url("https://www.transparenttextures.com/patterns/natural-paper.png");
+  }
+
+  .btn-ink {
+    @apply px-6 py-3 text-xs font-bold uppercase tracking-[0.2em] bg-[#1a1c1d] text-white rounded-xl hover:bg-[#2d3436] transition-all duration-500 shadow-lg shadow-black/5 hover:shadow-black/10 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-30;
+  }
+
+  .btn-ink-soft {
+    @apply px-6 py-3 text-xs font-bold uppercase tracking-[0.2em] bg-[#1a1c1d]/90 text-white rounded-xl hover:bg-[#1a1c1d] transition-all duration-500 shadow-lg shadow-black/5 hover:shadow-black/10 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-30;
+  }
+
 
   .custom-scrollbar::-webkit-scrollbar {
-    width: 4px;
+    width: 3px;
   }
   .custom-scrollbar::-webkit-scrollbar-track {
     background: transparent;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #dfe6e9;
+    background: #e0deda;
     border-radius: 10px;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #b2bec3;
+    background: #c9c7c3;
   }
 }
 
-@keyframes shimmer {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
+@keyframes typewriter {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-type {
+  animation: typewriter 1s ease-out forwards;
 }

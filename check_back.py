@@ -58,11 +58,11 @@ async def diagnose():
         # get_provider is synchronous
         provider = get_provider()
         print(f"[AI] Testing connection to {settings.ai_provider}...")
-        success = await provider.test_connection()
+        success, message = await provider.test_connection()
         if success:
             print(f"[AI] Connection SUCCESSFUL.")
         else:
-            print(f"[AI] Connection FAILED. (Is Ollama/OpenRouter configured?)")
+            print(f"[AI] Connection FAILED: {message}")
     except Exception as e:
         print(f"[AI] ERROR: {str(e)}")
 

@@ -1,6 +1,7 @@
 from pathlib import Path
 from app.config import settings
 from app.services.providers.base import BaseProvider
+from app.services.providers.gemini import GeminiProvider
 from app.services.providers.ollama import OllamaProvider
 from app.services.providers.openrouter import OpenRouterProvider
 
@@ -15,6 +16,13 @@ def get_provider(
         return OpenRouterProvider(
             api_key=provider_settings.get("openrouter_api_key"),
             model=provider_settings.get("openrouter_model"),
+        )
+
+    if provider_name == "gemini":
+        return GeminiProvider(
+            api_key=provider_settings.get("gemini_api_key"),
+            model=provider_settings.get("gemini_model"),
+            requests_per_minute=provider_settings.get("gemini_requests_per_minute"),
         )
 
     return OllamaProvider(

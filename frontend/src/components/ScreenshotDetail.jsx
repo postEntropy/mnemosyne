@@ -162,7 +162,7 @@ function getStatusColor(status) {
   switch (status) {
     case 'processed': return 'text-green-600'
     case 'pending': return 'text-amber-500'
-    case 'processing': return 'text-blue-500'
+    case 'processing': return 'text-[#5e6472]'
     case 'error': return 'text-rose-500'
     default: return 'text-gray-400'
   }

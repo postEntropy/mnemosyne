@@ -34,7 +34,7 @@ export const getSettings = () => api.get('/settings')
 
 export const updateSettings = (data) => api.put('/settings', data)
 
-export const testConnection = () => api.post('/settings/test')
+export const testConnection = (data = {}) => api.post('/settings/test', data)
 
 export const getStatus = () => api.get('/status')
 

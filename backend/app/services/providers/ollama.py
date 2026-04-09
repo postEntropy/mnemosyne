@@ -1,6 +1,5 @@
 import json
 import base64
-import re
 import logging
 import ast
 from pathlib import Path
@@ -40,23 +39,54 @@ class OllamaProvider(BaseProvider):
                 raise Exception(f"Ollama API error: {resp.status_code}")
 
             raw = resp.json().get("response", "").strip()
-            logger.info(f"Raw response: {raw[:200]}...")
-            print(f"[DEBUG] Raw response: {raw[:200]}...")
+            logger.info(f"Raw response (model={self.model}): {raw[:200]}...")
+            print(f"[DEBUG] Raw response (model={self.model}): {raw[:200]}...")
 
         return self._parse(raw)
 
-    async def test_connection(self) -> bool:
+    async def test_connection(self) -> tuple[bool, str]:
         logger.info("Testing Ollama connection...")
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
                 resp = await client.get(f"{self.base_url}/api/tags")
                 if resp.status_code != 200:
-                    return False
+                    return (
+                        False,
+                        f"Ollama /api/tags returned HTTP {resp.status_code}",
+                    )
+
                 models = resp.json().get("models", [])
-                return any(self.model in m.get("name", "") for m in models)
+                model_names = [m.get("name", "") for m in models]
+                if not any(self.model in name for name in model_names):
+                    return (
+                        False,
+                        f"Model '{self.model}' not found in Ollama",
+                    )
+
+                # Do a lightweight generation to validate the model can run now.
+                gen_payload = {
+                    "model": self.model,
+                    "prompt": "Reply with exactly: OK",
+                    "stream": False,
+                    "options": {"temperature": 0, "num_predict": 16},
+                }
+                gen_resp = await client.post(
+                    f"{self.base_url}/api/generate", json=gen_payload
+                )
+                if gen_resp.status_code != 200:
+                    return (
+                        False,
+                        f"Ollama /api/generate returned HTTP {gen_resp.status_code}",
+                    )
+
+                raw = (gen_resp.json().get("response") or "").strip()
+                if not raw:
+                    return (False, "Ollama returned empty generation response")
+
+                return (True, "Connection successful (model reachable and generating)")
             except Exception as e:
                 logger.error(f"Connection test failed: {e}")
-                return False
+                return (False, f"Connection failed: {e}")
 
     def _parse(self, raw: str) -> AnalysisResult:
         raw = raw.strip()

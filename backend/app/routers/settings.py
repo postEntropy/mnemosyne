@@ -15,6 +15,9 @@ class SettingsUpdate(BaseModel):
     ollama_model: str | None = None
     openrouter_api_key: str | None = None
     openrouter_model: str | None = None
+    gemini_api_key: str | None = None
+    gemini_model: str | None = None
+    gemini_requests_per_minute: str | None = None
     ui_scale: str | None = None
 
 
@@ -38,6 +41,13 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
             settings["openrouter_api_key"] = (
                 key[:6] + "..." + key[-4:] if len(key) > 10 else "..."
             )
+
+    if "gemini_api_key" in settings and settings["gemini_api_key"]:
+        key = settings["gemini_api_key"]
+        if key.strip():
+            settings["gemini_api_key"] = (
+                key[:6] + "..." + key[-4:] if len(key) > 10 else "..."
+            )
     return settings
 
 
@@ -50,7 +60,7 @@ async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_d
             continue
 
         # Don't overwrite with masked key
-        if key == "openrouter_api_key" and "..." in value:
+        if key in ("openrouter_api_key", "gemini_api_key") and "..." in value:
             continue
 
         result = await db.execute(select(Setting).where(Setting.key == key))
@@ -65,17 +75,31 @@ async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_d
 
 
 @router.post("/test", response_model=TestConnectionResponse)
-async def test_connection(db: AsyncSession = Depends(get_db)):
+async def test_connection(
+    data: SettingsUpdate | None = None, db: AsyncSession = Depends(get_db)
+):
     result = await db.execute(select(Setting))
     settings_map = {s.key: s.value for s in result.scalars().all()}
+
+    # Allow UI to test unsaved form values (provider/model/base_url/key) before persisting.
+    if data is not None:
+        overrides = data.model_dump(exclude_unset=True)
+        for key, value in overrides.items():
+            if value is None:
+                continue
+            # Ignore masked placeholders from UI when no new key was entered.
+            if key in ("openrouter_api_key", "gemini_api_key") and "..." in str(value):
+                continue
+            settings_map[key] = str(value)
+
     provider_name = settings_map.get("ai_provider", "ollama")
 
     try:
         provider = get_provider(provider_name, settings_map)
-        success = await provider.test_connection()
+        success, message = await provider.test_connection()
         return TestConnectionResponse(
             success=success,
-            message="Connection successful" if success else "Connection failed",
+            message=message,
         )
     except Exception as e:
         return TestConnectionResponse(success=False, message=str(e))

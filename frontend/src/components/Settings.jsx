@@ -8,6 +8,9 @@ export default function Settings({ onBack }) {
     ollama_model: 'llava',
     openrouter_api_key: '',
     openrouter_model: 'openai/gpt-4o',
+    gemini_api_key: '',
+    gemini_model: 'gemini-2.0-flash',
+    gemini_requests_per_minute: '8',
     ui_scale: '1.0',
   })
   const [loading, setLoading] = useState(true)
@@ -39,7 +42,7 @@ export default function Settings({ onBack }) {
     setTesting(true)
     setTestResult(null)
     try {
-      const res = await testConnection()
+      const res = await testConnection(settings)
       setTestResult({ success: res.data.success, message: res.data.message })
     } catch (e) {
       setTestResult({ success: false, message: 'Connection failed' })
@@ -65,7 +68,7 @@ export default function Settings({ onBack }) {
   )
 
   return (
-    <div className="min-h-screen bg-[#fcfaf7] pb-20 overflow-y-auto">
+    <div className="min-h-screen bg-[#fcfaf7] pb-32 overflow-y-auto">
       <header className="glass border-b border-[#f1f2f6] px-8 py-6 sticky top-0 z-10">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <button
@@ -121,8 +124,8 @@ export default function Settings({ onBack }) {
             <p className="text-sm text-[#636e72]">Choose the intelligence that will interpret your memories.</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-6">
-            {['ollama', 'openrouter'].map((provider) => (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {['ollama', 'openrouter', 'gemini'].map((provider) => (
               <button
                 key={provider}
                 onClick={() => setSettings({ ...settings, ai_provider: provider })}
@@ -141,7 +144,9 @@ export default function Settings({ onBack }) {
                 <p className="text-sm text-[#636e72] leading-relaxed italic font-serif">
                   {provider === 'ollama' 
                     ? 'Private and local. Your data never leaves this machine.' 
-                    : 'Cloud-powered excellence. Requires an active API connection.'}
+                    : provider === 'openrouter'
+                      ? 'Cloud-powered excellence. Bring your own model.'
+                      : 'Google Gemini API with modest free tier limits.'}
                 </p>
               </button>
             ))}
@@ -184,7 +189,7 @@ export default function Settings({ onBack }) {
                 />
               </div>
             </div>
-          ) : (
+          ) : settings.ai_provider === 'openrouter' ? (
             <div className="space-y-8">
               <div className="space-y-3">
                 <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">OpenRouter API Key</label>
@@ -207,6 +212,44 @@ export default function Settings({ onBack }) {
                 />
               </div>
             </div>
+          ) : (
+            <div className="space-y-8">
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Gemini API Key</label>
+                <input
+                  type="password"
+                  value={settings.gemini_api_key}
+                  onChange={(e) => setSettings({ ...settings, gemini_api_key: e.target.value })}
+                  className="w-full bg-[#fcfaf7] border border-[#f1f2f6] rounded-2xl px-6 py-4 text-sm focus:outline-none focus:border-[#dcdde1] transition shadow-inner"
+                  placeholder="AIza..."
+                />
+              </div>
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Vision Model</label>
+                <input
+                  type="text"
+                  value={settings.gemini_model}
+                  onChange={(e) => setSettings({ ...settings, gemini_model: e.target.value })}
+                  className="w-full bg-[#fcfaf7] border border-[#f1f2f6] rounded-2xl px-6 py-4 text-sm focus:outline-none focus:border-[#dcdde1] transition shadow-inner"
+                  placeholder="gemini-2.0-flash"
+                />
+              </div>
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Requests Per Minute</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="60"
+                  value={settings.gemini_requests_per_minute}
+                  onChange={(e) => setSettings({ ...settings, gemini_requests_per_minute: e.target.value })}
+                  className="w-full bg-[#fcfaf7] border border-[#f1f2f6] rounded-2xl px-6 py-4 text-sm focus:outline-none focus:border-[#dcdde1] transition shadow-inner"
+                  placeholder="8"
+                />
+              </div>
+              <p className="text-xs text-[#8a9499] leading-relaxed px-1">
+                Free tier has stricter request limits. The backend applies a per-minute guard for Gemini calls.
+              </p>
+            </div>
           )}
 
           <div className="pt-8 border-t border-[#f1f2f6] flex items-center justify-between">
@@ -219,9 +262,20 @@ export default function Settings({ onBack }) {
             </button>
             
             {testResult && (
-              <div className={`flex items-center gap-3 text-sm font-medium ${testResult.success ? 'text-green-600' : 'text-rose-500'}`}>
-                <div className={`w-2 h-2 rounded-full ${testResult.success ? 'bg-green-600' : 'bg-rose-500'}`} />
-                {testResult.message}
+              <div
+                className={`max-w-[60%] rounded-2xl border px-4 py-3 shadow-sm transition-all duration-300 ${
+                  testResult.success
+                    ? 'bg-emerald-50/70 border-emerald-200 text-emerald-700'
+                    : 'bg-rose-50/70 border-rose-200 text-rose-700'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-2.5 h-2.5 rounded-full ${testResult.success ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                  <p className="text-[10px] font-bold uppercase tracking-[0.2em]">
+                    {settings.ai_provider === 'openrouter' ? 'OpenRouter' : settings.ai_provider === 'gemini' ? 'Gemini' : 'Ollama'} Test
+                  </p>
+                </div>
+                <p className="mt-2 text-sm leading-relaxed break-words">{testResult.message}</p>
               </div>
             )}
           </div>
@@ -231,6 +285,16 @@ export default function Settings({ onBack }) {
             <p className="text-xs text-[#dfe6e9] uppercase tracking-[0.4em] font-bold">Mnemosyne Artifact v1.0.0</p>
         </footer>
       </main>
+
+      <div className="fixed bottom-6 left-6 right-6 md:left-auto md:right-8 z-30">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="btn-primary w-full md:w-auto md:min-w-[220px] px-10 py-4 shadow-xl"
+        >
+          {saving ? 'Saving...' : 'Save Changes'}
+        </button>
+      </div>
     </div>
   )
 }

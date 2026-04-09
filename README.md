@@ -18,6 +18,7 @@ It watches a screenshot folder, analyzes images with a vision model, stores stru
 - AI Providers:
   - Ollama (local)
   - OpenRouter (cloud)
+  - Gemini (cloud)
 
 ## Repository Layout
 
@@ -66,8 +67,9 @@ cp .env.example .env
 Edit `.env` and set at least:
 
 - `SCREENSHOTS_DIR` to a valid folder on your machine
-- `AI_PROVIDER` to `ollama` or `openrouter`
+- `AI_PROVIDER` to `ollama`, `openrouter`, or `gemini`
 - If `openrouter`: set `OPENROUTER_API_KEY`
+- If `gemini`: set `GEMINI_API_KEY`
 - If `ollama`: ensure `OLLAMA_BASE_URL` and `OLLAMA_MODEL` are valid
 
 Start backend:
@@ -94,11 +96,14 @@ Main environment variables (`backend/.env`):
 
 - `SCREENSHOTS_DIR` (default in code: `~/Pictures/Screenshots`)
 - `THUMBNAILS_DIR` (default: `./thumbnails`)
-- `AI_PROVIDER` (`ollama` or `openrouter`)
+- `AI_PROVIDER` (`ollama`, `openrouter`, or `gemini`)
 - `OLLAMA_BASE_URL` (default: `http://localhost:11434`)
 - `OLLAMA_MODEL` (default: `llava`)
 - `OPENROUTER_API_KEY` (required for OpenRouter)
 - `OPENROUTER_MODEL`
+- `GEMINI_API_KEY` (required for Gemini)
+- `GEMINI_MODEL` (default: `gemini-2.0-flash`)
+- `GEMINI_REQUESTS_PER_MINUTE` (default: `8`)
 - `DATABASE_URL` (default: `sqlite+aiosqlite:///./mnemosyne.db`)
 - `API_HOST` / `API_PORT`
 

@@ -24,6 +24,10 @@ async def validate_provider(
         api_key = settings_map.get("openrouter_api_key", "")
         if not api_key or not api_key.strip():
             return False, "OpenRouter API key is not configured"
+    elif name == "gemini":
+        api_key = settings_map.get("gemini_api_key", "")
+        if not api_key or not api_key.strip():
+            return False, "Gemini API key is not configured"
     elif name == "ollama":
         pass
     else:
@@ -53,7 +57,7 @@ async def process_screenshot(
         screenshot.status = "processed"
         screenshot.error_message = None
     except Exception as e:
-        logger.error(f"Analysis failed for {screenshot.file_path}: {e}")
+        logger.exception(f"Analysis failed for {screenshot.file_path}: {e}")
         screenshot.status = "error"
         screenshot.error_message = str(e)
 

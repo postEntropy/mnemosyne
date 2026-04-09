@@ -117,6 +117,39 @@ async def _ask_with_openrouter(prompt: str, settings_map: dict[str, str]) -> str
         return content
 
 
+async def _ask_with_gemini(prompt: str, settings_map: dict[str, str]) -> str:
+    api_key = (settings_map.get("gemini_api_key") or "").strip()
+    model = settings_map.get("gemini_model") or app_settings.gemini_model
+
+    if not api_key:
+        raise ValueError("Gemini API key is not configured")
+
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.2,
+            "maxOutputTokens": 800,
+        },
+    }
+
+    endpoint = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    )
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(endpoint, params={"key": api_key}, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        candidates = data.get("candidates") or []
+        if not candidates:
+            raise ValueError("Gemini response missing candidates")
+        parts = ((candidates[0].get("content") or {}).get("parts") or [])
+        content_parts = [p.get("text", "") for p in parts if isinstance(p, dict)]
+        content = "\n".join([p for p in content_parts if p]).strip()
+        if not content:
+            raise ValueError("Gemini response missing content")
+        return content
+
+
 async def ask_archive(db: AsyncSession, question: str, limit: int = 8) -> dict:
     settings_result = await db.execute(select(Setting))
     settings_map = {s.key: s.value for s in settings_result.scalars().all()}
@@ -179,6 +212,8 @@ async def ask_archive(db: AsyncSession, question: str, limit: int = 8) -> dict:
 
     if provider == "openrouter":
         raw = await _ask_with_openrouter(prompt, settings_map)
+    elif provider == "gemini":
+        raw = await _ask_with_gemini(prompt, settings_map)
     else:
         raw = await _ask_with_ollama(prompt, settings_map)
 
