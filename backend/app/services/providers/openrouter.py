@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 from app.config import settings
 from app.services.providers.base import BaseProvider, AnalysisResult
+from app.services.providers.prompting import build_analysis_prompt
 import httpx
 
 logger = logging.getLogger("mnemosyne.openrouter")
@@ -184,16 +185,7 @@ class OpenRouterProvider(BaseProvider):
                 return (False, f"Connection failed: {e}")
 
     def _prompt(self) -> str:
-        return (
-            "Analyze this screenshot and return a JSON object with the following fields:\n\n"
-            "{\n"
-            '  "description": "Detailed narrative description of everything visible on screen",\n'
-            '  "application": "Name of the main application/website shown",\n'
-            '  "tags": ["relevant", "keywords", "extracted", "from", "content"],\n'
-            '  "summary": "One-sentence summary of the activity shown"\n'
-            "}\n\n"
-            "Respond with ONLY valid JSON, no markdown formatting or extra text."
-        )
+        return build_analysis_prompt()
 
     def _parse(self, raw: str) -> AnalysisResult:
         raw = raw.strip()

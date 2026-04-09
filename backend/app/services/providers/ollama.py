@@ -5,6 +5,7 @@ import ast
 from pathlib import Path
 from app.config import settings
 from app.services.providers.base import BaseProvider, AnalysisResult
+from app.services.providers.prompting import build_analysis_prompt
 import httpx
 
 logger = logging.getLogger("mnemosyne.ollama")
@@ -26,7 +27,7 @@ class OllamaProvider(BaseProvider):
         # Simple prompt - qwen3-vl is smart enough to understand
         payload = {
             "model": self.model,
-            "prompt": 'Look at this screenshot and respond with ONLY a JSON object with these keys: description (2-3 sentences), application (app name), tags (5 keywords), summary (1 sentence). Example: {"description":"...","application":"...","tags":["...","..."],"summary":"..."}',
+            "prompt": build_analysis_prompt(),
             "images": [image_b64],
             "stream": False,
             "options": {"temperature": 0.3, "num_predict": 800},

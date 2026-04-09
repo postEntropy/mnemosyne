@@ -128,6 +128,7 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
             <section className="space-y-4">
               <p className="text-[10px] font-bold text-[#b2bec3] uppercase tracking-[0.2em] font-sans">Artifact Details</p>
               <div className="space-y-3">
+                <DetailRow label="Application" value={screenshot.application || 'App not detected'} />
                 <DetailRow label="Filename" value={screenshot.filename} />
                 <DetailRow label="Status" value={screenshot.status} color={getStatusColor(screenshot.status)} />
                 <DetailRow label="Storage Path" value={screenshot.file_path} isPath />

@@ -114,11 +114,11 @@ function ScreenshotCard({ screenshot, onSelect, onRefresh }) {
       </div>
 
       <div className="px-1 space-y-2">
-        <div className="flex items-center justify-between opacity-50">
-          <span className="text-[9px] font-bold text-[#1a1c1d] uppercase tracking-[0.3em]">
-            {screenshot.application || 'Unknown Folio'}
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-bold text-[#1a1c1d] uppercase tracking-[0.25em]">
+            {screenshot.application || 'App Not Detected'}
           </span>
-          <span className="text-[9px] font-bold text-[#1a1c1d] uppercase tracking-[0.2em]">
+          <span className="text-[9px] font-bold text-[#1a1c1d] uppercase tracking-[0.2em] opacity-45">
             {formattedDate}
           </span>
         </div>

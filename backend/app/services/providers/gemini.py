@@ -12,6 +12,7 @@ import httpx
 
 from app.config import settings
 from app.services.providers.base import AnalysisResult, BaseProvider
+from app.services.providers.prompting import build_analysis_prompt
 
 logger = logging.getLogger("mnemosyne.gemini")
 
@@ -88,11 +89,7 @@ class GeminiProvider(BaseProvider):
                 {
                     "parts": [
                         {
-                            "text": (
-                                "Look at this screenshot and respond with ONLY a JSON object "
-                                "with these keys: description (2-3 sentences), application "
-                                "(app name), tags (5 keywords), summary (1 sentence)."
-                            )
+                            "text": build_analysis_prompt()
                         },
                         {
                             "inlineData": {
