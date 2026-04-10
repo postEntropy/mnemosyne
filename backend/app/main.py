@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 # Configure logging
 logging.basicConfig(
@@ -60,12 +60,22 @@ app.mount("/thumbnails", StaticFiles(directory=str(thumbnails_dir)), name="thumb
 @app.get("/screenshots-file/{file_path:path}")
 async def serve_screenshot(file_path: str):
     import urllib.parse
+    from fastapi.responses import JSONResponse
 
     original = urllib.parse.unquote(file_path)
-    path = Path(original)
-    if not path.exists():
-        from fastapi.responses import JSONResponse
+    base_dir = Path(app_settings.screenshots_dir).resolve()
+    requested = Path(original).expanduser()
 
+    try:
+        path = requested.resolve() if requested.is_absolute() else (base_dir / requested).resolve()
+        path.relative_to(base_dir)
+    except (OSError, ValueError):
+        return JSONResponse(
+            status_code=403,
+            content={"error": "Access denied: file is outside screenshots folder"},
+        )
+
+    if not path.exists() or not path.is_file():
         return JSONResponse(
             status_code=404,
             content={"error": "Screenshot file not found", "path": original},
@@ -79,16 +89,29 @@ app.include_router(settings.router)
 
 @app.get("/api/status")
 async def status():
+    from app.models.database import async_session
+    from app.models.dead_letter import DeadLetterItem
+
     handler = getattr(app.state, "watcher_handler", None)
     observer = getattr(app.state, "watcher_observer", None)
     watcher_paused = handler.paused if handler is not None else False
     watcher_alive = observer.is_alive() if observer is not None else False
+
+    async with async_session() as db:
+        dlq_open = (
+            await db.execute(
+                select(func.count(DeadLetterItem.id)).where(DeadLetterItem.resolved.is_(False))
+            )
+        ).scalar_one()
+
     return {
         "worker_running": worker.running,
         "is_paused": worker.paused,
         "watcher_paused": watcher_paused,
         "watcher_alive": watcher_alive,
         "queue_size": worker.queue.qsize(),
+        "dlq_open": dlq_open,
+        "metrics": worker.get_metrics(),
     }
 
 

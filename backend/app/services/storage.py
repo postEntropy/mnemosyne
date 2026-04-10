@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +10,68 @@ from app.services.analyzer import get_provider
 from pathlib import Path
 
 logger = logging.getLogger("mnemosyne.storage")
+
+
+GENERIC_APPLICATION_VALUES = {
+    "",
+    "unknown",
+    "app not detected",
+    "not detected",
+    "n/a",
+    "na",
+    "none",
+    "null",
+    "desktop",
+    "screen",
+    "screenshot",
+}
+
+KNOWN_APPLICATION_HINTS: list[tuple[str, str]] = [
+    (r"\bngu\s*idle\b", "NGU Idle"),
+    (r"\bvisual\s+studio\s+code\b|\bvscode\b", "Visual Studio Code"),
+    (r"\bgoogle\s+chrome\b|\bchrome\b", "Google Chrome"),
+    (r"\bmozilla\s+firefox\b|\bfirefox\b", "Mozilla Firefox"),
+    (r"\bedge\b|\bmicrosoft\s+edge\b", "Microsoft Edge"),
+    (r"\bdiscord\b", "Discord"),
+    (r"\btelegram\b", "Telegram"),
+    (r"\bspotify\b", "Spotify"),
+    (r"\bsteam\b", "Steam"),
+]
+
+
+def _clean_application_name(raw: str | None) -> str:
+    cleaned = " ".join((raw or "").strip().split())
+    if cleaned.lower() in GENERIC_APPLICATION_VALUES:
+        return ""
+    return cleaned[:100]
+
+
+def _infer_application_from_text(*texts: str | None) -> str:
+    corpus = "\n".join(t for t in texts if t).lower()
+    if not corpus:
+        return ""
+
+    for pattern, app_name in KNOWN_APPLICATION_HINTS:
+        if re.search(pattern, corpus):
+            return app_name
+
+    return ""
+
+
+def _resolve_application(result: dict, screenshot: Screenshot) -> str:
+    from_ai = _clean_application_name(result.get("application"))
+    if from_ai:
+        return from_ai
+
+    inferred = _infer_application_from_text(
+        result.get("summary"),
+        result.get("description"),
+        screenshot.filename,
+    )
+    if inferred:
+        return inferred
+
+    return "Unknown"
 
 
 async def validate_provider(
@@ -50,7 +113,7 @@ async def process_screenshot(
         result = await provider.analyze(Path(screenshot.file_path))
 
         screenshot.description = result["description"]
-        screenshot.application = result["application"]
+        screenshot.application = _resolve_application(result, screenshot)
         screenshot.tags = json.dumps(result["tags"])
         screenshot.summary = result["summary"]
         screenshot.processed_at = datetime.utcnow()

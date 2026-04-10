@@ -3,9 +3,10 @@ import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.database import get_db
+from app.models.dead_letter import DeadLetterItem
 from app.models.screenshot import Screenshot
 from app.services.archive_qa import ask_archive
 
@@ -147,39 +148,31 @@ async def list_tags(db: AsyncSession = Depends(get_db)):
 
 @router.get("/stats")
 async def get_stats(db: AsyncSession = Depends(get_db)):
-    total = (
+    stats_row = (
         await db.execute(
-            select(func.count(Screenshot.id)).where(Screenshot.status != "ignored")
+            select(
+                func.count(Screenshot.id),
+                func.coalesce(
+                    func.sum(case((Screenshot.status == "processed", 1), else_=0)), 0
+                ),
+                func.coalesce(
+                    func.sum(case((Screenshot.status == "pending", 1), else_=0)), 0
+                ),
+                func.coalesce(
+                    func.sum(case((Screenshot.status == "processing", 1), else_=0)), 0
+                ),
+                func.coalesce(
+                    func.sum(case((Screenshot.status == "error", 1), else_=0)), 0
+                ),
+            ).where(Screenshot.status != "ignored")
         )
-    ).scalar_one()
-    processed = (
-        await db.execute(
-            select(func.count(Screenshot.id)).where(
-                Screenshot.status == "processed", Screenshot.status != "ignored"
-            )
-        )
-    ).scalar_one()
-    pending = (
-        await db.execute(
-            select(func.count(Screenshot.id)).where(
-                Screenshot.status == "pending", Screenshot.status != "ignored"
-            )
-        )
-    ).scalar_one()
-    processing = (
-        await db.execute(
-            select(func.count(Screenshot.id)).where(
-                Screenshot.status == "processing", Screenshot.status != "ignored"
-            )
-        )
-    ).scalar_one()
-    errors = (
-        await db.execute(
-            select(func.count(Screenshot.id)).where(
-                Screenshot.status == "error", Screenshot.status != "ignored"
-            )
-        )
-    ).scalar_one()
+    ).one()
+
+    total = int(stats_row[0] or 0)
+    processed = int(stats_row[1] or 0)
+    pending = int(stats_row[2] or 0)
+    processing = int(stats_row[3] or 0)
+    errors = int(stats_row[4] or 0)
 
     apps_result = await db.execute(
         select(Screenshot.application, func.count(Screenshot.id))
@@ -344,6 +337,72 @@ async def rescan_screenshot(
     worker = request.app.state.worker
     await worker.enqueue(screenshot.file_path)
     return {"message": "Screenshot queued for rescanning"}
+
+
+@router.get("/dlq")
+async def list_dead_letters(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    resolved: bool | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    base_query = select(DeadLetterItem)
+    if resolved is not None:
+        base_query = base_query.where(DeadLetterItem.resolved.is_(resolved))
+
+    count_query = select(func.count()).select_from(base_query.subquery())
+    total = (await db.execute(count_query)).scalar_one()
+
+    query = (
+        base_query.order_by(DeadLetterItem.failed_at.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+    )
+    items = (await db.execute(query)).scalars().all()
+
+    return {
+        "items": [item.to_dict() for item in items],
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "pages": (total + limit - 1) // limit if total > 0 else 0,
+    }
+
+
+@router.post("/dlq/{item_id}/retry")
+async def retry_dead_letter(
+    item_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    item = (
+        await db.execute(select(DeadLetterItem).where(DeadLetterItem.id == item_id))
+    ).scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Dead-letter item not found")
+
+    screenshot = (
+        await db.execute(select(Screenshot).where(Screenshot.file_path == item.file_path))
+    ).scalar_one_or_none()
+    if not screenshot:
+        raise HTTPException(
+            status_code=404,
+            detail="Screenshot for this dead-letter item was not found",
+        )
+
+    screenshot.status = "pending"
+    screenshot.error_message = None
+    screenshot.processed_at = None
+    item.resolved = True
+    item.retried_at = datetime.utcnow()
+    await db.commit()
+
+    worker = request.app.state.worker
+    await worker.enqueue(screenshot.file_path)
+    return {
+        "message": "Dead-letter item requeued",
+        "item": item.to_dict(),
+    }
 
 
 @router.delete("/{screenshot_id}")
