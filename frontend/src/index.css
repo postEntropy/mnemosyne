@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -10,6 +12,7 @@
     --ink-medium: #4a4e52;
     --ink-light: #94999e;
     --accent: #5e6472;
+    --reading-serif: 'Lora', Georgia, 'Times New Roman', serif;
   }
 
   body {
@@ -19,6 +22,10 @@
 
   h1, h2, h3, h4, h5, h6 {
     @apply font-serif tracking-tight;
+  }
+
+  .font-reading-serif {
+    font-family: var(--reading-serif);
   }
 }
 
@@ -45,7 +52,7 @@
   }
 
   .card-archive {
-    @apply bg-white/80 backdrop-blur-md rounded-3xl border border-[#f0ede9] transition-all duration-700 overflow-hidden;
+    @apply bg-white/80 backdrop-blur-md rounded-2xl border border-[#f0ede9] transition-all duration-300 overflow-hidden;
     box-shadow: 0 4px 20px -5px rgba(0,0,0,0.03);
   }
 
@@ -123,4 +130,45 @@
 
 .animate-type {
   animation: typewriter 1s ease-out forwards;
+}
+
+@keyframes ai-refresh-fog {
+  0% {
+    opacity: 0.28;
+    transform: scale(1);
+    filter: blur(0px);
+  }
+  50% {
+    opacity: 0.42;
+    transform: scale(1.04);
+    filter: blur(0.3px);
+  }
+  100% {
+    opacity: 0.3;
+    transform: scale(1.01);
+    filter: blur(0px);
+  }
+}
+
+@keyframes ai-refresh-reveal {
+  0% {
+    box-shadow: 0 0 0 rgba(180, 83, 9, 0);
+    background-color: rgba(180, 83, 9, 0.06);
+  }
+  100% {
+    box-shadow: 0 0 0 rgba(180, 83, 9, 0);
+    background-color: transparent;
+  }
+}
+
+.ai-refresh-fog {
+  background:
+    radial-gradient(circle at 20% 30%, rgba(180, 83, 9, 0.18), rgba(180, 83, 9, 0) 45%),
+    radial-gradient(circle at 72% 44%, rgba(94, 100, 114, 0.16), rgba(94, 100, 114, 0) 48%),
+    radial-gradient(circle at 48% 78%, rgba(120, 124, 128, 0.14), rgba(120, 124, 128, 0) 44%);
+  animation: ai-refresh-fog 2.4s ease-in-out infinite;
+}
+
+.ai-refresh-reveal {
+  animation: ai-refresh-reveal 0.9s ease-out;
 }

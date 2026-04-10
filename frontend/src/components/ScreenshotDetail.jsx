@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getScreenshot, rescanScreenshot } from '../api'
 
 function normalizeTags(rawTags) {
@@ -13,15 +13,138 @@ function normalizeTags(rawTags) {
   }
 }
 
+function parseJsonObjectFromText(text) {
+  if (typeof text !== 'string') return null
+  const trimmed = text.trim()
+  if (!trimmed) return null
+
+  if (trimmed.startsWith('{')) {
+    try {
+      return JSON.parse(trimmed)
+    } catch {
+      // Fallback extraction below.
+    }
+  }
+
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start === -1 || end === -1 || end <= start) return null
+
+  try {
+    return JSON.parse(trimmed.slice(start, end + 1))
+  } catch {
+    return null
+  }
+}
+
+function getSafeSummary(item) {
+  const raw = (item?.summary || '').trim()
+  const parsed = parseJsonObjectFromText(raw)
+  if (parsed && typeof parsed.summary === 'string' && parsed.summary.trim()) {
+    return parsed.summary.trim()
+  }
+  if (parsed && typeof parsed.description === 'string' && parsed.description.trim()) {
+    return parsed.description.trim().slice(0, 140)
+  }
+  if (raw && !raw.startsWith('{')) return raw
+
+  const parsedDescription = parseJsonObjectFromText(item?.description || '')
+  if (parsedDescription && typeof parsedDescription.summary === 'string' && parsedDescription.summary.trim()) {
+    return parsedDescription.summary.trim()
+  }
+
+  return item?.filename || 'Unidentified Activity'
+}
+
+function getSafeDescription(item) {
+  const raw = (item?.description || '').trim()
+  const parsed = parseJsonObjectFromText(raw)
+  if (parsed && typeof parsed.description === 'string' && parsed.description.trim()) {
+    return parsed.description.trim()
+  }
+  if (raw && !raw.startsWith('{')) return raw
+
+  const parsedSummary = parseJsonObjectFromText(item?.summary || '')
+  if (parsedSummary && typeof parsedSummary.description === 'string' && parsedSummary.description.trim()) {
+    return parsedSummary.description.trim()
+  }
+  if (parsedSummary && typeof parsedSummary.summary === 'string' && parsedSummary.summary.trim()) {
+    return parsedSummary.summary.trim()
+  }
+
+  return 'The soul of this capture is still being contemplated...'
+}
+
+function buildAiDisplay(item) {
+  return {
+    summary: getSafeSummary(item),
+    description: getSafeDescription(item),
+    tags: normalizeTags(item?.tags),
+  }
+}
+
+function sameAiDisplay(a, b) {
+  if (!a || !b) return false
+  if (a.summary !== b.summary) return false
+  if (a.description !== b.description) return false
+  if ((a.tags || []).length !== (b.tags || []).length) return false
+  return (a.tags || []).every((tag, idx) => tag === b.tags[idx])
+}
+
 export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDelete }) {
   const [liveScreenshot, setLiveScreenshot] = useState(screenshot)
+  const [displayAi, setDisplayAi] = useState(() => buildAiDisplay(screenshot))
   const [rescanning, setRescanning] = useState(false)
   const [rescanError, setRescanError] = useState('')
-  const tags = normalizeTags(liveScreenshot.tags)
+  const [narrativeExpanded, setNarrativeExpanded] = useState(false)
+  const [aiReveal, setAiReveal] = useState(false)
+  const [aiContentFading, setAiContentFading] = useState(false)
+  const prevStatusRef = useRef(liveScreenshot?.status)
+  const tags = displayAi.tags
+  const safeSummary = displayAi.summary
+  const safeDescription = displayAi.description
+  const canExpandNarrative = safeDescription.length > 320
+  const isAiGenerating = rescanning || liveScreenshot.status === 'pending' || liveScreenshot.status === 'processing'
 
   useEffect(() => {
     setLiveScreenshot(screenshot)
+    setDisplayAi(buildAiDisplay(screenshot))
+    setNarrativeExpanded(false)
+    setAiReveal(false)
+    setAiContentFading(false)
+    prevStatusRef.current = screenshot?.status
   }, [screenshot])
+
+  useEffect(() => {
+    if (isAiGenerating) return
+
+    const nextDisplay = buildAiDisplay(liveScreenshot)
+    if (sameAiDisplay(nextDisplay, displayAi)) return
+
+    setAiContentFading(true)
+    const updateTimer = setTimeout(() => {
+      setDisplayAi(nextDisplay)
+      setAiContentFading(false)
+    }, 250)
+
+    return () => clearTimeout(updateTimer)
+  }, [liveScreenshot, isAiGenerating, displayAi])
+
+  useEffect(() => {
+    const prevStatus = prevStatusRef.current
+    const nextStatus = liveScreenshot?.status
+    const completedNow =
+      (prevStatus === 'pending' || prevStatus === 'processing') && nextStatus === 'processed'
+
+    if (completedNow) {
+      setAiReveal(true)
+      const timer = setTimeout(() => setAiReveal(false), 1300)
+      prevStatusRef.current = nextStatus
+      return () => clearTimeout(timer)
+    }
+
+    prevStatusRef.current = nextStatus
+  }, [liveScreenshot?.status])
 
   useEffect(() => {
     const status = liveScreenshot?.status
@@ -71,8 +194,8 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
   })
 
   return (
-    <div className="min-h-screen bg-[#fdfcfb] flex flex-col">
-      <header className="glass border-b border-[#f1f2f6] px-8 py-4 flex items-center justify-between sticky top-0 z-20">
+    <div className="h-screen overflow-hidden bg-[#fdfcfb] flex flex-col">
+      <header className="shrink-0 glass border-b border-[#f1f2f6] px-8 py-4 flex items-center justify-between z-20">
         <button
           onClick={onClose}
           className="flex items-center gap-2 text-[#636e72] hover:text-[#2d3436] transition font-medium text-sm"
@@ -101,14 +224,14 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
         </div>
       </header>
 
-      <div className="flex-grow flex flex-col lg:flex-row overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
         {/* Image Side */}
-        <div className="flex-grow bg-[#f8f9fa] p-6 lg:p-10 flex items-center justify-center overflow-hidden">
+        <div className="flex-grow min-h-0 bg-[#f8f9fa] p-5 lg:p-8 flex items-center justify-center overflow-hidden">
           <div className="relative group max-w-full">
             <img
               src={fullImageSrc}
               alt={liveScreenshot.filename}
-              className="max-w-full max-h-[calc(100vh-10rem)] lg:max-h-[calc(100vh-8rem)] object-contain shadow-2xl rounded-sm border border-[#dfe6e9]"
+              className="max-w-full max-h-[calc(100vh-9rem)] lg:max-h-[calc(100vh-8rem)] object-contain shadow-2xl rounded-sm border border-[#dfe6e9]"
             />
             <div className="absolute top-4 left-4 bg-[#1a1c1d]/82 backdrop-blur-md px-4 py-2 rounded-full text-[10px] font-bold uppercase tracking-widest text-white border border-white/20 shadow-lg">
               {liveScreenshot.application || 'Capture'}
@@ -117,16 +240,16 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
         </div>
 
         {/* Info Side */}
-        <div className="w-full lg:w-[450px] border-l border-[#f1f2f6] flex flex-col h-full glass-strong">
-          <div className="p-8 space-y-10 overflow-y-auto custom-scrollbar">
-            <section className="space-y-4">
-              <div className="space-y-1">
+        <div className="w-full lg:w-[420px] border-l border-[#f1f2f6] flex flex-col h-full min-h-0 glass-strong overflow-hidden">
+          <div className="p-6 lg:p-7 space-y-6 overflow-hidden">
+            <section className={`space-y-4 ${aiReveal ? 'ai-refresh-reveal' : ''}`}>
+              <div className={`space-y-1 transition-all duration-500 ${aiContentFading ? 'opacity-0 translate-y-1' : 'opacity-100 translate-y-0'}`}>
                 <p className="text-[10px] font-bold text-[#b2bec3] uppercase tracking-[0.2em] font-sans">Moment Captured</p>
-                <h2 className="text-[1.25rem] font-serif text-[#2d3436] font-semibold leading-snug tracking-tight">{liveScreenshot.summary || 'Unidentified Activity'}</h2>
+                <h2 className={`text-[1.15rem] font-reading-serif text-[#2d3436] font-semibold leading-snug tracking-tight line-clamp-2 transition-all duration-500 ${isAiGenerating ? 'blur-[1px] opacity-65' : ''}`}>{safeSummary}</h2>
                 <p className="text-xs text-[#636e72] font-medium">{formattedDate}</p>
               </div>
               
-              <div className="flex flex-wrap gap-2 pt-2">
+              <div className={`flex flex-wrap gap-2 pt-2 transition-all duration-500 ${isAiGenerating ? 'blur-[1px] opacity-65' : ''} ${aiContentFading ? 'opacity-0 translate-y-1' : 'opacity-100 translate-y-0'}`}>
                 {tags.map((tag) => (
                   <span
                     key={tag}
@@ -138,24 +261,34 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
               </div>
             </section>
 
-            <section className="space-y-3">
+            <section className={`space-y-3 ${aiReveal ? 'ai-refresh-reveal' : ''}`}>
               <p className="text-[10px] font-bold text-[#b2bec3] uppercase tracking-[0.2em] font-sans">AI Narrative</p>
-              <div className="bg-[#fcfaf7] p-6 rounded-2xl border border-[#f1f2f6] shadow-sm">
-                <p className="text-sm text-[#2d3436] leading-relaxed font-serif italic whitespace-pre-wrap">
-                  {liveScreenshot.description || "The soul of this capture is still being contemplated..."}
-                </p>
+              <div className={`bg-[#fcfaf7] p-4 rounded-2xl border border-[#f1f2f6] shadow-sm ${narrativeExpanded ? 'max-h-72 overflow-hidden' : ''}`}>
+                <div className={`${narrativeExpanded ? 'max-h-56 overflow-y-auto custom-scrollbar pr-2' : ''}`}>
+                  <p className={`text-[14px] text-[#374151] leading-[1.65] font-reading-serif tracking-[0.005em] whitespace-pre-wrap transition-all duration-500 ${narrativeExpanded ? '' : 'line-clamp-4'} ${isAiGenerating ? 'blur-[1px] opacity-65' : ''} ${aiContentFading ? 'opacity-0 translate-y-1' : 'opacity-100 translate-y-0'}`}>
+                    {safeDescription}
+                  </p>
+                </div>
+                {canExpandNarrative && (
+                  <button
+                    onClick={() => setNarrativeExpanded((prev) => !prev)}
+                    className="mt-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[#7f868d] hover:text-[#1a1c1d] transition-colors"
+                  >
+                    {narrativeExpanded ? 'Collapse Narrative' : 'Read Full Narrative'}
+                  </button>
+                )}
               </div>
               {rescanError && (
                 <p className="text-xs text-rose-600 font-medium">{rescanError}</p>
               )}
             </section>
 
-            <section className="space-y-4">
+            <section className={`space-y-4 rounded-2xl transition-all duration-700 ${aiReveal ? 'ai-refresh-reveal' : ''}`}>
               <p className="text-[10px] font-bold text-[#b2bec3] uppercase tracking-[0.2em] font-sans">Artifact Details</p>
-              <div className="space-y-3">
+              <div className="space-y-2.5 transition-all duration-500">
                 <DetailRow label="Application" value={liveScreenshot.application || 'App not detected'} />
                 <DetailRow label="Filename" value={liveScreenshot.filename} />
-                <DetailRow label="Status" value={liveScreenshot.status} color={getStatusColor(liveScreenshot.status)} />
+                <DetailRow label="Status" value={liveScreenshot.status.charAt(0).toUpperCase() + liveScreenshot.status.slice(1)} color={getStatusColor(liveScreenshot.status)} />
                 <DetailRow label="Storage Path" value={liveScreenshot.file_path} isPath />
               </div>
             </section>
@@ -175,9 +308,9 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
 
 function DetailRow({ label, value, color = 'text-[#2d3436]', isPath = false }) {
   return (
-    <div className="flex flex-col space-y-1">
+    <div className="flex flex-col space-y-1 min-w-0">
       <span className="text-[10px] font-bold text-[#dfe6e9] uppercase tracking-wider">{label}</span>
-      <span className={`text-[11px] font-medium break-all ${color} ${isPath ? 'font-mono' : 'font-sans'}`}>
+      <span className={`text-[11px] font-medium ${color} ${isPath ? 'font-mono truncate' : 'font-sans truncate'}`} title={value}>
         {value}
       </span>
     </div>

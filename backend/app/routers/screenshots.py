@@ -101,6 +101,7 @@ async def search_screenshots(
         select(Screenshot)
         .where(
             or_(
+                Screenshot.filename.ilike(pattern),
                 Screenshot.description.ilike(pattern),
                 Screenshot.application.ilike(pattern),
                 Screenshot.summary.ilike(pattern),

@@ -34,6 +34,8 @@ class OpenRouterProvider(BaseProvider):
                     ],
                 }
             ],
+            "max_tokens": 1200,
+            "temperature": 0.2,
         }
 
         headers = {

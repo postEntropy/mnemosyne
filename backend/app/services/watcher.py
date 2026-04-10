@@ -52,47 +52,72 @@ class ScreenshotHandler(FileSystemEventHandler):
     def _is_supported_file(self, file_path: str) -> bool:
         return file_path.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))
 
-    def on_closed(self, event):
+    def _accept_event(self, event, file_path: str | None = None) -> str | None:
         if self.paused:
-            return
+            return None
         if event.is_directory:
-            return
-        if not self._is_supported_file(event.src_path):
-            return
-        if not self._should_process(event.src_path):
-            return
+            return None
 
-        self._handle_file(event.src_path)
+        candidate = file_path or getattr(event, "src_path", None)
+        if not candidate or not self._is_supported_file(candidate):
+            return None
+        if not self._should_process(candidate):
+            return None
+        return candidate
+
+    def on_closed(self, event):
+        file_path = self._accept_event(event)
+        if file_path:
+            self._handle_file(file_path)
 
     def on_created(self, event):
-        if self.paused:
-            return
-        if event.is_directory:
-            return
-        if not self._is_supported_file(event.src_path):
-            return
-        if not self._should_process(event.src_path):
-            return
-
-        self._handle_file(event.src_path)
+        file_path = self._accept_event(event)
+        if file_path:
+            self._handle_file(file_path)
 
     def on_moved(self, event):
-        if self.paused:
-            return
-        if event.is_directory:
-            return
         dest_path = getattr(event, "dest_path", None)
-        if not dest_path or not self._is_supported_file(dest_path):
-            return
-        if not self._should_process(dest_path):
-            return
+        file_path = self._accept_event(event, dest_path)
+        if file_path:
+            self._handle_file(file_path)
 
-        self._handle_file(dest_path)
+    def on_modified(self, event):
+        file_path = self._accept_event(event)
+        if file_path:
+            self._handle_file(file_path)
 
     def _handle_file(self, file_path: str):
-        asyncio.run_coroutine_threadsafe(
-            self._register_and_enqueue(file_path), self._loop
-        )
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                self._register_and_enqueue(file_path), self._loop
+            )
+        except Exception:
+            logger.exception("Failed to schedule watcher task for %s", file_path)
+            return
+
+        def _log_future_exception(done_future):
+            try:
+                done_future.result()
+            except Exception:
+                logger.exception("Watcher task failed for %s", file_path)
+
+        future.add_done_callback(_log_future_exception)
+
+    async def _wait_until_stable(self, path: Path, attempts: int = 6, delay: float = 0.2):
+        previous_size: int | None = None
+        for _ in range(attempts):
+            if not path.exists():
+                return
+            try:
+                size = path.stat().st_size
+            except FileNotFoundError:
+                return
+
+            if size > 0 and previous_size == size:
+                return
+
+            previous_size = size
+            await asyncio.sleep(delay)
 
     async def _register_and_enqueue(self, file_path: str):
         async with async_session() as db:
@@ -115,6 +140,8 @@ class ScreenshotHandler(FileSystemEventHandler):
             if not path.exists():
                 logger.warning(f"Watcher received file that no longer exists: {file_path}")
                 return
+
+            await self._wait_until_stable(path)
 
             try:
                 mtime = datetime.fromtimestamp(path.stat().st_mtime)

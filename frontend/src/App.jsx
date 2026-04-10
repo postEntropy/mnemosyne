@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import ScreenshotList from './components/ScreenshotList'
 import SearchBar from './components/SearchBar'
 import ScreenshotDetail from './components/ScreenshotDetail'
@@ -21,19 +21,21 @@ function normalizeTags(rawTags) {
 }
 
 export default function App() {
+  const PAGE_SIZE = 24
   const [screenshots, setScreenshots] = useState([])
   const [stats, setStats] = useState(null)
   const [tags, setTags] = useState([])
   const [selected, setSelected] = useState(null)
   const [routePath, setRoutePath] = useState(() => window.location.pathname || '/')
   const [page, setPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(1)
+  const [hasMorePages, setHasMorePages] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [activeTags, setActiveTags] = useState([])
   const [statusFilter, setStatusFilter] = useState(null)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [paused, setPaused] = useState(false)
   const [watcherPaused, setWatcherPaused] = useState(false)
@@ -48,6 +50,10 @@ export default function App() {
   const [askAnswer, setAskAnswer] = useState('')
   const [askMatches, setAskMatches] = useState([])
   const [askProvider, setAskProvider] = useState('')
+  const scrollContainerRef = useRef(null)
+  const loadMoreRef = useRef(null)
+  const statsRef = useRef(null)
+  const autoRefreshInFlightRef = useRef(false)
 
   const navigate = useCallback((path) => {
     if (window.location.pathname === path) return
@@ -92,32 +98,69 @@ export default function App() {
       })
   }, [routePath, screenshots, selected])
 
-  const loadData = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true)
-    
+  const loadMeta = useCallback(async () => {
     try {
-      setUiError('')
-      const [ssRes, statsRes, tagsRes, statusRes, healthRes] = await Promise.all([
-        getScreenshots(page, 24, statusFilter, dateFrom, dateTo),
+      const [statsRes, tagsRes, statusRes, healthRes] = await Promise.all([
         getStats(),
         getTags(),
         getStatus(),
         getHealth().catch(() => ({ data: null }))
       ])
-      setScreenshots(ssRes.data.screenshots)
-      setTotalPages(ssRes.data.pages)
       setStats(statsRes.data)
       setTags(tagsRes.data.tags)
       setPaused(statusRes.data.is_paused)
       setWatcherPaused(Boolean(statusRes.data.watcher_paused))
       setHealth(healthRes?.data)
+      return {
+        stats: statsRes.data,
+      }
+    } catch (e) {
+      console.error(e)
+      return null
+    }
+  }, [])
+
+  const loadData = useCallback(async ({ reset = true, silent = false, query = searchQuery, refreshMeta = true } = {}) => {
+    const nextPage = reset ? 1 : page + 1
+
+    if (reset && !silent) setLoading(true)
+    if (!reset) setLoadingMore(true)
+
+    try {
+      setUiError('')
+
+      const ssRes = query
+        ? await searchScreenshots(query, nextPage, PAGE_SIZE)
+        : await getScreenshots(nextPage, PAGE_SIZE, statusFilter, dateFrom, dateTo)
+
+      const nextScreenshots = ssRes.data.screenshots || []
+      const totalPages = ssRes.data.pages || 1
+
+      setScreenshots((prev) => {
+        if (reset) return nextScreenshots
+        const existingIds = new Set(prev.map((ss) => ss.id))
+        const deduped = nextScreenshots.filter((ss) => !existingIds.has(ss.id))
+        return [...prev, ...deduped]
+      })
+
+      setPage(nextPage)
+      setHasMorePages(nextPage < totalPages)
+
+      if (reset && refreshMeta) {
+        await loadMeta()
+      }
     } catch (e) {
       console.error(e)
       setUiError('Unable to load archive data right now.')
     } finally {
       setLoading(false)
+      setLoadingMore(false)
     }
-  }, [page, statusFilter, dateFrom, dateTo])
+  }, [page, statusFilter, dateFrom, dateTo, searchQuery, loadMeta])
+
+  useEffect(() => {
+    statsRef.current = stats
+  }, [stats])
 
   // Initial load, config and dependency changes
   useEffect(() => {
@@ -136,7 +179,7 @@ export default function App() {
         setOnboardingDismissed(true)
         // User already dismissed onboarding in the past; make sure legacy pending items are ignored.
         ignoreOnboardingPending()
-          .then(() => loadData(true))
+          .then(() => loadData({ reset: true, silent: true }))
           .catch((e) => console.error(e))
       } else {
         getOnboardingInfo().then(res => {
@@ -149,14 +192,54 @@ export default function App() {
   }, []) // Empty deps - only run once on mount
 
   useEffect(() => {
-    loadData()
+    loadData({ reset: true })
   }, [loadData])
 
-  // Background refresh
+  // Background refresh + timeline sync for new watcher captures.
   useEffect(() => {
-    const interval = setInterval(() => loadData(true), 15000)
+    const interval = setInterval(async () => {
+      if (autoRefreshInFlightRef.current) return
+      autoRefreshInFlightRef.current = true
+      try {
+        const previousStats = statsRef.current
+        const meta = await loadMeta()
+        const nextStats = meta?.stats
+        if (!nextStats) return
+
+        const prevTotal = previousStats?.total ?? 0
+        const nextTotal = nextStats.total ?? 0
+        const prevActive = (previousStats?.pending ?? 0) + (previousStats?.processing ?? 0)
+        const nextActive = (nextStats?.pending ?? 0) + (nextStats?.processing ?? 0)
+
+        const shouldRefreshTimeline = nextTotal !== prevTotal || prevActive > 0 || nextActive > 0
+        if (shouldRefreshTimeline) {
+          await loadData({ reset: true, silent: true, refreshMeta: false })
+        }
+      } finally {
+        autoRefreshInFlightRef.current = false
+      }
+    }, 8000)
     return () => clearInterval(interval)
-  }, [loadData])
+  }, [loadMeta, loadData])
+
+  useEffect(() => {
+    if (showAsk || loading || loadingMore || !hasMorePages) return
+    const sentinel = loadMoreRef.current
+    const root = scrollContainerRef.current
+    if (!sentinel || !root) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          loadData({ reset: false, silent: true })
+        }
+      },
+      { root, rootMargin: '240px 0px' }
+    )
+
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [showAsk, loading, loadingMore, hasMorePages, loadData])
 
   // Sync scan progress if scanning is active
   useEffect(() => {
@@ -214,34 +297,14 @@ export default function App() {
 
   const handleSearch = async (q) => {
     setSearchQuery(q)
-    setPage(1)  // Reset to first page for new searches
+    setPage(1)
+    setShowAsk(false)
     if (!q) {
       setActiveTags([])
-      setLoading(true)
-      try {
-        const res = await getScreenshots(1, 24, statusFilter, dateFrom, dateTo)
-        setScreenshots(res.data.screenshots)
-        setTotalPages(res.data.pages)
-      } catch (e) {
-        console.error(e)
-        setUiError('Nao foi possivel atualizar a busca.')
-      } finally {
-        setLoading(false)
-      }
+      await loadData({ reset: true, query: '' })
       return
     }
-    setLoading(true)
-    try {
-      setUiError('')
-      const res = await searchScreenshots(q, 1, 24)
-      setScreenshots(res.data.screenshots)
-      setTotalPages(res.data.pages || 1)
-    } catch (e) {
-      console.error(e)
-      setUiError('Nao foi possivel buscar capturas agora.')
-    } finally {
-      setLoading(false)
-    }
+    await loadData({ reset: true, query: q })
   }
 
   const handleDelete = async (id) => {
@@ -250,7 +313,7 @@ export default function App() {
       const { deleteScreenshot } = await import('./api')
       await deleteScreenshot(id)
       setSelected(null)
-      loadData(true)
+      loadData({ reset: true, silent: true })
     } catch (e) {
       console.error(e)
       setUiError('Nao foi possivel deletar a captura.')
@@ -261,6 +324,7 @@ export default function App() {
     setPage(1)
     setSearchQuery('')
     setShowAsk(false)
+    loadData({ reset: true, query: '' })
     setActiveTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
   }
 
@@ -360,7 +424,7 @@ export default function App() {
       <ScreenshotDetail
         screenshot={selected}
         onClose={closeScreenshot}
-        onRefresh={() => loadData(true)}
+        onRefresh={() => loadData({ reset: true, silent: true })}
         onDelete={handleDelete}
       />
     )
@@ -406,6 +470,8 @@ export default function App() {
                         setStatusFilter(item.id); 
                       }
                       setPage(1);
+                      setSearchQuery('')
+                      setActiveTags([])
                     }}
                     className={`w-full relative overflow-hidden flex items-center justify-between pl-5 pr-4 py-3 rounded-2xl transition-all duration-500 group ${
                       isActive
@@ -497,7 +563,10 @@ export default function App() {
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_15%,rgba(180,83,9,0.05),transparent_45%),radial-gradient(circle_at_80%_30%,rgba(26,28,29,0.04),transparent_50%)]" />
           </>
         )}
-        <div className={`flex-grow overflow-y-auto custom-scrollbar ${showAsk ? 'p-0' : 'p-12 md:p-16'}`}>
+        <div
+          ref={scrollContainerRef}
+          className={`flex-grow overflow-y-auto custom-scrollbar ${showAsk ? 'p-0' : 'p-12 md:p-16'}`}
+        >
           {showAsk && (
             <AskArchivePanel
               onAsk={handleAskArchive}
@@ -596,7 +665,7 @@ export default function App() {
                     <div className="px-5 md:px-8 xl:px-12 2xl:px-16">
                       <div className="rounded-2xl border border-[#ece7dd] bg-white/62 backdrop-blur-md px-5 py-4">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="mr-3 text-[9px] font-bold text-[#7f868d] uppercase tracking-[0.35em] opacity-90">Concepts</span>
+                          <span className="mr-3 text-[9px] font-bold text-[#7f868d] uppercase tracking-[0.35em] opacity-90">Tags</span>
                           {conceptTags.slice(0, 18).map((tag) => (
                             <button
                               key={tag}
@@ -618,29 +687,23 @@ export default function App() {
                   <ScreenshotList
                     screenshots={filteredScreenshots}
                     onSelect={openScreenshot}
-                    onRefresh={() => loadData(true)}
+                    onRefresh={() => loadData({ reset: true, silent: true })}
+                    onDelete={handleDelete}
                     viewMode={viewMode}
                   />
                 </div>
 
-                <div className="flex justify-center items-center gap-12 pb-16 border-t border-[#f1f2f6] pt-12">
-                  <button
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="btn-secondary px-12 py-3 text-base"
-                  >
-                    Previous
-                  </button>
-                  <span className="text-lg font-serif italic text-[#636e72]">
-                    Folio <span className="text-[#2d3436] font-bold">{page}</span>
-                  </span>
-                  <button
-                    onClick={() => setPage((p) => p + 1)}
-                    disabled={page >= totalPages}
-                    className="btn-secondary px-12 py-3 text-base"
-                  >
-                    Next
-                  </button>
+                <div className="pb-16 border-t border-[#f1f2f6] pt-10 space-y-4">
+                  <div ref={loadMoreRef} className="h-1" />
+                  {loadingMore && (
+                    <div className="flex items-center justify-center gap-3 text-[#7f868d]">
+                      <div className="w-5 h-5 border-2 border-[#1a1c1d] border-t-transparent rounded-full animate-spin" />
+                      <span className="text-[11px] font-bold uppercase tracking-[0.2em]">Loading more memories</span>
+                    </div>
+                  )}
+                  {!hasMorePages && screenshots.length > 0 && (
+                    <p className="text-center text-[10px] font-bold uppercase tracking-[0.28em] text-[#94999e]">End of archive</p>
+                  )}
                 </div>
               </div>
             )
@@ -675,8 +738,8 @@ export default function App() {
       <OnboardingModal
         data={onboarding}
         onClose={() => setOnboarding(null)}
-        onScanComplete={() => loadData(true)}
-        onDismissed={() => loadData(true)}
+        onScanComplete={() => loadData({ reset: true, silent: true })}
+        onDismissed={() => loadData({ reset: true, silent: true })}
         onStartBackgroundScan={() => {
             setScanning(true);
             setScanProgress({ queued: 0, total: onboarding?.unregistered || 0, done: 0, current_file: null });

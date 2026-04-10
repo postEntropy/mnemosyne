@@ -122,7 +122,7 @@ class GeminiProvider(BaseProvider):
             ],
             "generationConfig": {
                 "temperature": 0.2,
-                "maxOutputTokens": 900,
+                "maxOutputTokens": 1200,
             },
         }
 
@@ -313,7 +313,7 @@ class GeminiProvider(BaseProvider):
             tags = []
 
         return AnalysisResult(
-            description=str(data.get("description", ""))[:500],
+            description=str(data.get("description", ""))[:4000],
             application=str(data.get("application", "Unknown"))[:100],
             tags=[str(t) for t in tags][:5],
             summary=str(data.get("summary", ""))[:200],

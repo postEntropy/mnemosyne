@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { rescanScreenshot } from '../api'
 
 function normalizeTags(rawTags) {
   if (Array.isArray(rawTags)) return rawTags
@@ -13,14 +12,98 @@ function normalizeTags(rawTags) {
   }
 }
 
-const statusStyles = {
-  processed: 'bg-green-100 text-green-700',
-  pending: 'bg-amber-100 text-amber-700',
-  processing: 'bg-[#f0ede9] text-[#4a4e52]',
-  error: 'bg-rose-100 text-rose-700',
+function parseJsonObjectFromText(text) {
+  if (typeof text !== 'string') return null
+  const trimmed = text.trim()
+  if (!trimmed) return null
+
+  const direct = trimmed.startsWith('{') ? trimmed : null
+  if (direct) {
+    try {
+      return JSON.parse(direct)
+    } catch {
+      // Fall through to a more forgiving extraction.
+    }
+  }
+
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start === -1 || end === -1 || end <= start) return null
+
+  try {
+    return JSON.parse(trimmed.slice(start, end + 1))
+  } catch {
+    return null
+  }
 }
 
-export default function ScreenshotList({ screenshots, onSelect, onRefresh, viewMode = 'grid' }) {
+function sanitizeSummary(screenshot) {
+  const rawSummary = (screenshot.summary || '').trim()
+  const parsedSummary = parseJsonObjectFromText(rawSummary)
+  if (parsedSummary && typeof parsedSummary.summary === 'string' && parsedSummary.summary.trim()) {
+    return parsedSummary.summary.trim()
+  }
+  if (parsedSummary && typeof parsedSummary.description === 'string' && parsedSummary.description.trim()) {
+    return parsedSummary.description.trim().slice(0, 140)
+  }
+  if (rawSummary && !rawSummary.startsWith('{')) {
+    return rawSummary
+  }
+
+  const rawDescription = (screenshot.description || '').trim()
+  const parsedDescription = parseJsonObjectFromText(rawDescription)
+  if (parsedDescription && typeof parsedDescription.summary === 'string' && parsedDescription.summary.trim()) {
+    return parsedDescription.summary.trim()
+  }
+  if (parsedDescription && typeof parsedDescription.description === 'string' && parsedDescription.description.trim()) {
+    return parsedDescription.description.trim().slice(0, 140)
+  }
+
+  return screenshot.filename
+}
+
+function sanitizeDescription(screenshot) {
+  const rawDescription = (screenshot.description || '').trim()
+  const parsedDescription = parseJsonObjectFromText(rawDescription)
+  if (parsedDescription && typeof parsedDescription.description === 'string' && parsedDescription.description.trim()) {
+    return parsedDescription.description.trim()
+  }
+  if (rawDescription && !rawDescription.startsWith('{')) {
+    return rawDescription
+  }
+
+  const rawSummary = (screenshot.summary || '').trim()
+  const parsedSummary = parseJsonObjectFromText(rawSummary)
+  if (parsedSummary && typeof parsedSummary.description === 'string' && parsedSummary.description.trim()) {
+    return parsedSummary.description.trim()
+  }
+  if (parsedSummary && typeof parsedSummary.summary === 'string' && parsedSummary.summary.trim()) {
+    return parsedSummary.summary.trim()
+  }
+
+  return screenshot.filename
+}
+
+function formatCaptureDateTime(timestamp, includeYear = false) {
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return 'Unknown time'
+
+  const datePart = date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(includeYear ? { year: 'numeric' } : {}),
+  })
+
+  const timePart = date.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+
+  return `${datePart} • ${timePart}`
+}
+
+export default function ScreenshotList({ screenshots, onSelect, onRefresh, onDelete, viewMode = 'grid' }) {
   if (viewMode === 'list') {
     return (
       <div className="px-5 md:px-8 xl:px-12 2xl:px-16">
@@ -30,6 +113,7 @@ export default function ScreenshotList({ screenshots, onSelect, onRefresh, viewM
               key={ss.id}
               screenshot={ss}
               onSelect={onSelect}
+              onDelete={onDelete}
               onRefresh={onRefresh}
             />
           ))}
@@ -46,6 +130,7 @@ export default function ScreenshotList({ screenshots, onSelect, onRefresh, viewM
           key={ss.id}
           screenshot={ss}
           onSelect={onSelect}
+          onDelete={onDelete}
           onRefresh={onRefresh}
         />
       ))}
@@ -54,44 +139,50 @@ export default function ScreenshotList({ screenshots, onSelect, onRefresh, viewM
   )
 }
 
-function ScreenshotCard({ screenshot, onSelect, onRefresh }) {
+function ScreenshotCard({ screenshot, onSelect, onDelete }) {
   const [thumbFailed, setThumbFailed] = useState(false)
 
-  const handleRescan = async (e) => {
+  const handleDeleteClick = (e) => {
     e.stopPropagation()
-    try {
-      await rescanScreenshot(screenshot.id)
-      onRefresh()
-    } catch (err) {
-      console.error(err)
-    }
+    if (!onDelete) return
+    onDelete(screenshot.id)
   }
 
   const thumbSrc = screenshot.thumbnail_path
     ? `/thumbnails/${screenshot.thumbnail_path.split('/').pop()}`
     : null
 
-  const formattedDate = new Date(screenshot.timestamp).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  })
+  const formattedDateTime = formatCaptureDateTime(screenshot.timestamp)
 
   const tags = normalizeTags(screenshot.tags)
-  const isAnalyzing = screenshot.status === 'processing' || screenshot.status === 'pending'
-  const summary = screenshot.summary || screenshot.filename
+  const isAnalyzing = screenshot.status === 'processing'
+  const summary = sanitizeSummary(screenshot)
 
   return (
     <div
       onClick={() => onSelect(screenshot)}
       className="group cursor-pointer flex flex-col space-y-3.5 w-full"
     >
-      <div className="card-archive aspect-[16/9] relative group-hover:-translate-y-1 transition-all duration-700 overflow-hidden">
+      <div className={`card-archive aspect-[16/9] relative group-hover:-translate-y-1 transition-all duration-300 overflow-hidden ${isAnalyzing ? 'blur-[1.5px] opacity-85' : ''}`}>
+        {onDelete && (
+          <button
+            onClick={handleDeleteClick}
+            className="absolute top-3 right-3 z-20 h-8 w-8 rounded-lg border border-rose-200/40 bg-rose-700/32 text-rose-100 shadow-[0_8px_22px_-10px_rgba(244,63,94,0.45)] backdrop-blur-md opacity-0 group-hover:opacity-100 hover:bg-rose-600/75 hover:text-white hover:scale-105 hover:shadow-[0_14px_30px_-12px_rgba(244,63,94,0.7)] transition-all duration-200 flex items-center justify-center"
+            aria-label="Delete screenshot"
+            title="Delete screenshot"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16" />
+            </svg>
+          </button>
+        )}
+
         {thumbSrc && !thumbFailed ? (
           <img 
             src={thumbSrc} 
             alt={screenshot.filename} 
             onError={() => setThumbFailed(true)}
-            className={`w-full h-full object-cover transition duration-1000 group-hover:scale-110 ${isAnalyzing ? 'blur-sm grayscale opacity-40' : 'opacity-90 group-hover:opacity-100'}`} 
+            className={`w-full h-full object-cover transition duration-400 group-hover:scale-110 ${isAnalyzing ? 'blur-sm grayscale opacity-40' : 'opacity-90 group-hover:opacity-100 group-hover:brightness-75'}`} 
           />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center text-[#94999e] text-[10px] font-bold uppercase tracking-[0.2em] gap-3 bg-[#fdfcfb]">
@@ -105,24 +196,19 @@ function ScreenshotCard({ screenshot, onSelect, onRefresh }) {
         )}
         
         {/* Status Badge - Physical Tag Look */}
-        <div className="absolute top-4 right-4">
+        {isAnalyzing && (
+          <div className="absolute top-4 right-4">
             <span
               className={`px-3 py-1 text-[8px] font-bold rounded-md uppercase tracking-[0.2em] backdrop-blur-md shadow-sm border border-white/20 ${
                 screenshot.status === 'processed' ? 'bg-white/90 text-[#1a1c1d]' : 'bg-[#1a1c1d]/80 text-white'
               }`}
             >
-              {screenshot.status}
+              {screenshot.status.charAt(0).toUpperCase() + screenshot.status.slice(1)}
             </span>
-        </div>
-
-        {isAnalyzing && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center space-y-4">
-                <div className="w-5 h-5 border border-[#1a1c1d] border-t-transparent rounded-full animate-spin" />
-                <p className="text-[9px] font-bold text-[#1a1c1d] uppercase tracking-[0.3em] animate-pulse">Restoring...</p>
-            </div>
+          </div>
         )}
 
-        <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
+        <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
 
       </div>
 
@@ -132,13 +218,13 @@ function ScreenshotCard({ screenshot, onSelect, onRefresh }) {
             {screenshot.application || 'App Not Detected'}
           </span>
           <span className="text-[8px] font-bold text-[#1a1c1d] uppercase tracking-[0.18em] opacity-45">
-            {formattedDate}
+            {formattedDateTime}
           </span>
         </div>
         
         <h3
           title={summary}
-          className="relative text-[15px] font-serif font-bold text-[#1a1c1d] leading-tight group-hover:text-[#5e6472] transition-colors duration-500"
+          className="relative text-[15px] font-reading-serif font-semibold text-[#1a1c1d] leading-tight group-hover:text-[#5e6472] transition-colors duration-500"
         >
           <span className="block overflow-hidden whitespace-nowrap pr-8">{summary}</span>
           <span className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-r from-transparent to-[#fdfcfb]" />
@@ -156,7 +242,7 @@ function ScreenshotCard({ screenshot, onSelect, onRefresh }) {
   )
 }
 
-function ScreenshotListRow({ screenshot, onSelect }) {
+function ScreenshotListRow({ screenshot, onSelect, onDelete }) {
   const [thumbFailed, setThumbFailed] = useState(false)
 
   const thumbSrc = screenshot.thumbnail_path
@@ -164,19 +250,46 @@ function ScreenshotListRow({ screenshot, onSelect }) {
     : null
 
   const tags = normalizeTags(screenshot.tags)
-  const summary = screenshot.summary || screenshot.filename
-  const formattedDate = new Date(screenshot.timestamp).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
+  const summary = sanitizeSummary(screenshot)
+  const descriptionPreview = sanitizeDescription(screenshot)
+  const formattedDateTime = formatCaptureDateTime(screenshot.timestamp, true)
+  const isAnalyzing = screenshot.status === 'processing'
+  const handleDeleteClick = (e) => {
+    e.stopPropagation()
+    if (!onDelete) return
+    onDelete(screenshot.id)
+  }
 
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => onSelect(screenshot)}
-      className="w-full text-left group rounded-3xl border border-[#ece7dd] bg-white/75 backdrop-blur-md p-3 md:p-4 transition-all duration-500 hover:border-[#d9d1c6] hover:shadow-[0_16px_40px_-20px_rgba(15,23,42,0.2)]"
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onSelect(screenshot)
+        }
+      }}
+      className="w-full text-left group relative rounded-3xl border border-[#ece7dd] bg-white/75 backdrop-blur-md p-3 md:p-4 transition-all duration-500 hover:border-[#d9d1c6] hover:shadow-[0_16px_40px_-20px_rgba(15,23,42,0.2)] cursor-pointer"
     >
-      <div className="flex items-start gap-4 md:gap-5">
+      {onDelete && (
+        <span className="absolute top-3 right-3 z-20">
+          <button
+            type="button"
+            onClick={handleDeleteClick}
+            className="h-8 w-8 rounded-lg border border-rose-200/40 bg-rose-700/32 text-rose-100 shadow-[0_8px_22px_-10px_rgba(244,63,94,0.45)] backdrop-blur-md opacity-0 group-hover:opacity-100 hover:bg-rose-600/75 hover:text-white hover:scale-105 hover:shadow-[0_14px_30px_-12px_rgba(244,63,94,0.7)] transition-all duration-200 flex items-center justify-center"
+            aria-label="Delete screenshot"
+            title="Delete screenshot"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16" />
+            </svg>
+          </button>
+        </span>
+      )}
+
+      <div className={`flex items-start gap-4 md:gap-5 transition-all duration-300 ${isAnalyzing ? 'blur-[1.5px] opacity-85' : ''}`}>
         <div className="w-44 md:w-56 shrink-0">
           <div className="relative aspect-[16/10] rounded-2xl overflow-hidden border border-[#ece7dd]">
             {thumbSrc && !thumbFailed ? (
@@ -184,11 +297,18 @@ function ScreenshotListRow({ screenshot, onSelect }) {
                 src={thumbSrc}
                 alt={screenshot.filename}
                 onError={() => setThumbFailed(true)}
-                className="w-full h-full object-cover transition duration-700 group-hover:scale-105"
+                className="w-full h-full object-cover transition duration-700 group-hover:scale-105 group-hover:brightness-75"
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-[10px] font-bold uppercase tracking-[0.2em] text-[#94999e] bg-[#fdfcfb]">
                 Unrecorded
+              </div>
+            )}
+            {isAnalyzing && (
+              <div className="absolute top-3 right-3">
+                <span className="px-2.5 py-1 text-[7px] font-bold rounded-md uppercase tracking-[0.2em] bg-[#1a1c1d]/80 text-white border border-white/20 backdrop-blur-md shadow-sm">
+                  {screenshot.status.charAt(0).toUpperCase() + screenshot.status.slice(1)}
+                </span>
               </div>
             )}
           </div>
@@ -197,18 +317,15 @@ function ScreenshotListRow({ screenshot, onSelect }) {
         <div className="min-w-0 flex-1 space-y-2.5 pt-1">
           <div className="flex items-center gap-3 text-[9px] uppercase tracking-[0.2em] font-bold">
             <span className="text-[#1a1c1d]">{screenshot.application || 'App Not Detected'}</span>
-            <span className="text-[#94999e]">{formattedDate}</span>
-            <span className={`px-2 py-0.5 rounded-md border border-[#ece7dd] ${screenshot.status === 'processed' ? 'text-[#1a1c1d] bg-white' : 'text-white bg-[#1a1c1d]/80'}`}>
-              {screenshot.status}
-            </span>
+            <span className="text-[#94999e]">{formattedDateTime}</span>
           </div>
 
-          <h3 className="relative text-[18px] font-serif font-bold text-[#1a1c1d]" title={summary}>
+          <h3 className="relative text-[18px] font-reading-serif font-semibold text-[#1a1c1d]" title={summary}>
             <span className="block overflow-hidden whitespace-nowrap pr-10">{summary}</span>
             <span className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-r from-transparent to-[#fdfcfb]" />
           </h3>
 
-          <p className="text-[13px] text-[#5e6472] leading-relaxed line-clamp-2">{summary}</p>
+          <p className="text-[13px] text-[#5e6472] leading-relaxed line-clamp-2">{descriptionPreview}</p>
 
           {tags.length > 0 && (
             <div className="flex flex-wrap gap-1.5 pt-1">
@@ -221,6 +338,6 @@ function ScreenshotListRow({ screenshot, onSelect }) {
           )}
         </div>
       </div>
-    </button>
+    </div>
   )
 }

@@ -35,8 +35,10 @@ async def lifespan(app: FastAPI):
     observer, handler = start_watcher(worker)
     app.state.worker = worker
     app.state.watcher_handler = handler
+    app.state.watcher_observer = observer
     yield
     observer.stop()
+    observer.join(timeout=5)
     await worker.stop()
 
 
@@ -78,11 +80,14 @@ app.include_router(settings.router)
 @app.get("/api/status")
 async def status():
     handler = getattr(app.state, "watcher_handler", None)
+    observer = getattr(app.state, "watcher_observer", None)
     watcher_paused = handler.paused if handler is not None else False
+    watcher_alive = observer.is_alive() if observer is not None else False
     return {
         "worker_running": worker.running,
         "is_paused": worker.paused,
         "watcher_paused": watcher_paused,
+        "watcher_alive": watcher_alive,
         "queue_size": worker.queue.qsize(),
     }
 

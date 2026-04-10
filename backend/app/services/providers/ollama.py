@@ -30,7 +30,7 @@ class OllamaProvider(BaseProvider):
             "prompt": build_analysis_prompt(),
             "images": [image_b64],
             "stream": False,
-            "options": {"temperature": 0.3, "num_predict": 800},
+            "options": {"temperature": 0.3, "num_predict": 1200},
         }
 
         async with httpx.AsyncClient(timeout=180.0) as client:
@@ -132,7 +132,7 @@ class OllamaProvider(BaseProvider):
             )
 
         return AnalysisResult(
-            description=data.get("description", "")[:500],
+            description=data.get("description", "")[:4000],
             application=data.get("application", "Unknown")[:100],
             tags=data.get("tags", [])[:5],
             summary=data.get("summary", "")[:200],
