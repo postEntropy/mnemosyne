@@ -198,7 +198,7 @@ export default function Settings({ onBack }) {
                 <div className="bg-amber-50 border border-amber-300 rounded-2xl p-6 space-y-2">
                   <p className="text-sm font-bold text-amber-800">Warning: Model may not support vision</p>
                   <p className="text-sm text-amber-700">
-                    The model "<span className="font-mono font-bold">{settings.ollama_model}</span>" does not appear to support image input.
+                    The model <code className="font-mono font-bold">&ldquo;{settings.ollama_model}&rdquo;</code> does not appear to support image input.
                     Use a vision-capable model like <code className="bg-amber-100 px-1.5 py-0.5 rounded font-mono font-bold">llava</code>, <code className="bg-amber-100 px-1.5 py-0.5 rounded font-mono font-bold">bakllava</code>, or <code className="bg-amber-100 px-1.5 py-0.5 rounded font-mono font-bold">moondream</code>.
                   </p>
                   <p className="text-sm text-amber-700">
@@ -207,8 +207,9 @@ export default function Settings({ onBack }) {
                 </div>
               )}
               <div className="space-y-3">
-                <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Ollama Base URL</label>
+                <label htmlFor="ollama-base-url" className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Ollama Base URL</label>
                 <input
+                  id="ollama-base-url"
                   type="text"
                   value={settings.ollama_base_url}
                   onChange={(e) => setSettings({ ...settings, ollama_base_url: e.target.value })}
@@ -217,8 +218,9 @@ export default function Settings({ onBack }) {
                 />
               </div>
               <div className="space-y-3">
-                <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Model Name</label>
+                <label htmlFor="ollama-model" className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Model Name</label>
                 <input
+                  id="ollama-model"
                   type="text"
                   value={settings.ollama_model}
                   onChange={(e) => setSettings({ ...settings, ollama_model: e.target.value })}
@@ -230,8 +232,9 @@ export default function Settings({ onBack }) {
           ) : settings.ai_provider === 'openrouter' ? (
             <div className="space-y-8">
               <div className="space-y-3">
-                <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">OpenRouter API Key</label>
+                <label htmlFor="openrouter-api-key" className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">OpenRouter API Key</label>
                 <input
+                  id="openrouter-api-key"
                   type="password"
                   value={settings.openrouter_api_key}
                   onChange={(e) => setSettings({ ...settings, openrouter_api_key: e.target.value })}
@@ -240,8 +243,9 @@ export default function Settings({ onBack }) {
                 />
               </div>
               <div className="space-y-3">
-                <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Vision Model</label>
+                <label htmlFor="openrouter-model" className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Vision Model</label>
                 <input
+                  id="openrouter-model"
                   type="text"
                   value={settings.openrouter_model}
                   onChange={(e) => setSettings({ ...settings, openrouter_model: e.target.value })}
@@ -253,8 +257,9 @@ export default function Settings({ onBack }) {
           ) : (
             <div className="space-y-8">
               <div className="space-y-3">
-                <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Gemini API Key</label>
+                <label htmlFor="gemini-api-key" className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Gemini API Key</label>
                 <input
+                  id="gemini-api-key"
                   type="password"
                   value={settings.gemini_api_key}
                   onChange={(e) => setSettings({ ...settings, gemini_api_key: e.target.value })}
@@ -263,8 +268,9 @@ export default function Settings({ onBack }) {
                 />
               </div>
               <div className="space-y-3">
-                <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Vision Model</label>
+                <label htmlFor="gemini-model" className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Vision Model</label>
                 <input
+                  id="gemini-model"
                   type="text"
                   value={settings.gemini_model}
                   onChange={(e) => setSettings({ ...settings, gemini_model: e.target.value })}
@@ -273,8 +279,9 @@ export default function Settings({ onBack }) {
                 />
               </div>
               <div className="space-y-3">
-                <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Requests Per Minute</label>
+                <label htmlFor="gemini-rpm" className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Requests Per Minute</label>
                 <input
+                  id="gemini-rpm"
                   type="number"
                   min="1"
                   max="60"
@@ -358,8 +365,9 @@ export default function Settings({ onBack }) {
               </div>
 
               <div className="space-y-3">
-                <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Ask Model (OpenRouter)</label>
+                <label htmlFor="ask-openrouter-model" className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Ask Model (OpenRouter)</label>
                 <input
+                  id="ask-openrouter-model"
                   type="text"
                   value={settings.ask_openrouter_model}
                   onChange={(e) => setSettings({ ...settings, ask_openrouter_model: e.target.value })}
@@ -369,8 +377,8 @@ export default function Settings({ onBack }) {
               </div>
 
               <div className="space-y-3">
-                <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Default Ask Mode</label>
-                <div className="grid grid-cols-3 gap-3">
+                <label htmlFor="ask-default-mode" className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Default Ask Mode</label>
+                <div id="ask-default-mode" className="grid grid-cols-3 gap-3">
                   {['quick', 'balanced', 'deep'].map((mode) => (
                     <button
                       key={mode}
@@ -389,8 +397,9 @@ export default function Settings({ onBack }) {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Quick Limit</label>
+                  <label htmlFor="ask-quick-limit" className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Quick Limit</label>
                   <input
+                    id="ask-quick-limit"
                     type="number"
                     min="50"
                     step="50"
@@ -400,8 +409,9 @@ export default function Settings({ onBack }) {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Balanced Limit</label>
+                  <label htmlFor="ask-balanced-limit" className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Balanced Limit</label>
                   <input
+                    id="ask-balanced-limit"
                     type="number"
                     min="100"
                     step="100"
@@ -411,8 +421,9 @@ export default function Settings({ onBack }) {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Deep Limit</label>
+                  <label htmlFor="ask-deep-limit" className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Deep Limit</label>
                   <input
+                    id="ask-deep-limit"
                     type="number"
                     min="100"
                     step="100"

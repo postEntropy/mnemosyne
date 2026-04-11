@@ -48,7 +48,7 @@ export default function AskArchivePanel({
   answer,
   matches,
   onOpenMatch,
-  provider,
+  _provider,
   suggestions = [],
   contextItems = 0,
   retrievedItems = 0,
@@ -96,14 +96,14 @@ export default function AskArchivePanel({
         <div className="rounded-3xl border border-[#ece7dd] bg-white/75 backdrop-blur-md p-5 md:p-6 shadow-[0_20px_60px_-30px_rgba(15,23,42,0.22)]">
           <div className="mb-4 flex items-center justify-between gap-4">
             <div>
-              <p className="text-[9px] font-bold tracking-[0.42em] uppercase text-[#b45309]">Ask Mnemosyne</p>
+              <p className="text-[10px] font-bold tracking-[0.35em] uppercase text-[#b45309]">Ask Mnemosyne</p>
               <h2 className="mt-1 text-2xl md:text-3xl text-[#1a1c1d] font-reading-serif">Archive</h2>
             </div>
             <div className="flex items-center gap-2.5">
               {(retrievedItems > 0 || contextItems > 0) && (
                 <div className="h-8 rounded-lg border border-[#ece7dd] bg-[#fcfbf9] px-2.5 flex items-center gap-1">
-                  <p className="text-[7px] font-bold tracking-[0.18em] uppercase text-[#94999e]">Context</p>
-                  <p className="text-[11px] leading-none text-[#1a1c1d] font-semibold">{contextItems.toLocaleString()} / {retrievedItems.toLocaleString()}</p>
+                  <p className="text-[9px] font-bold tracking-[0.15em] uppercase text-[#94999e]">Context</p>
+                  <p className="text-[10px] leading-none text-[#1a1c1d] font-semibold">{contextItems.toLocaleString()} / {retrievedItems.toLocaleString()}</p>
                 </div>
               )}
 
@@ -112,8 +112,8 @@ export default function AskArchivePanel({
                   className="h-8 rounded-lg border border-[#ece7dd] bg-[#fcfbf9] px-2.5 flex items-center gap-1"
                   title={dbTokenUpdatedAt ? `Updated: ${new Date(dbTokenUpdatedAt).toLocaleString()} | ${dbTokenizerName || 'token_estimator'}` : (dbTokenizerName || 'token_estimator')}
                 >
-                  <p className="text-[7px] font-bold tracking-[0.18em] uppercase text-[#94999e]">DB Tokens</p>
-                  <p className="text-[11px] leading-none text-[#1a1c1d] font-semibold">~{dbTokenEstimate.toLocaleString()}</p>
+                  <p className="text-[9px] font-bold tracking-[0.15em] uppercase text-[#94999e]">DB Tokens</p>
+                  <p className="text-[10px] leading-none text-[#1a1c1d] font-semibold">~{dbTokenEstimate.toLocaleString()}</p>
                 </div>
               )}
 
@@ -129,13 +129,13 @@ export default function AskArchivePanel({
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </button>
-                  <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-[#1a1c1d] text-white text-[8px] font-bold flex items-center justify-center">
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-[#1a1c1d] text-white text-[9px] font-bold flex items-center justify-center">
                     {visibleHistory.length}
                   </span>
 
                   {showHistoryMenu && (
                     <div className="absolute right-0 mt-2 w-[320px] max-w-[85vw] rounded-2xl border border-[#ece7dd] bg-white shadow-[0_30px_60px_-30px_rgba(15,23,42,0.25)] p-3 z-30">
-                      <p className="text-[9px] font-bold tracking-[0.28em] uppercase text-[#94999e] mb-2">Past Answers</p>
+                      <p className="text-[10px] font-bold tracking-[0.25em] uppercase text-[#94999e] mb-2">Past Answers</p>
                       <div className="max-h-72 overflow-y-auto custom-scrollbar space-y-2 pr-1">
                         {visibleHistory.map((item) => {
                           const active = item.id === activeHistoryId
@@ -182,7 +182,7 @@ export default function AskArchivePanel({
               <button
                 type="submit"
                 disabled={loading || !question.trim()}
-                className="h-9 px-5 rounded-xl flex items-center justify-center text-[9px] font-bold uppercase tracking-[0.24em] bg-[#1a1c1d] text-white hover:bg-[#0f1011] transition-colors duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="h-9 px-5 rounded-xl flex items-center justify-center text-[10px] font-bold uppercase tracking-[0.2em] bg-[#1a1c1d] text-white hover:bg-[#0f1011] transition-colors duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {loading ? (
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -194,7 +194,7 @@ export default function AskArchivePanel({
           </form>
 
           <div className="mt-5">
-            <p className="text-[9px] font-bold tracking-[0.28em] uppercase text-[#94999e] mb-3 px-1">
+            <p className="text-[10px] font-bold tracking-[0.25em] uppercase text-[#94999e] mb-3 px-1">
               {showResults ? 'Next Questions' : 'Suggestions'}
             </p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -224,7 +224,7 @@ export default function AskArchivePanel({
         {showResults && (
           <div className="space-y-4">
             <div className="rounded-2xl border border-[#ece7dd] bg-white/85 p-4 md:p-4.5 shadow-[0_14px_40px_-30px_rgba(15,23,42,0.22)]">
-              <p className="text-[9px] font-bold tracking-[0.28em] uppercase text-[#94999e] mb-3">Answer</p>
+              <p className="text-[10px] font-bold tracking-[0.25em] uppercase text-[#94999e] mb-3">Answer</p>
               <p className="text-[15px] leading-7 text-[#1a1c1d] whitespace-pre-wrap font-reading-serif">
                 {answer}
               </p>
@@ -232,7 +232,7 @@ export default function AskArchivePanel({
 
             {matches?.length > 0 && (
               <div className="rounded-2xl border border-[#ece7dd] bg-white/70 p-4 md:p-4.5">
-                <p className="text-[9px] font-bold tracking-[0.28em] uppercase text-[#94999e] mb-3">Evidence</p>
+                <p className="text-[10px] font-bold tracking-[0.25em] uppercase text-[#94999e] mb-3">Evidence</p>
                 <div className="overflow-x-auto thin-scrollbar pb-2">
                   <div className="flex gap-3 min-w-max">
                   {matches.map((m) => (
@@ -245,13 +245,14 @@ export default function AskArchivePanel({
                         {m.thumbnail_path ? (
                           <img
                             src={`/thumbnails/${m.thumbnail_path.split('/').pop()}`}
+                            alt={`Thumbnail for ${m.summary || m.filename}`}
                             className="w-full h-full object-cover"
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-[#94a3b8] text-xs">No thumbnail</div>
                         )}
                       </div>
-                      <p className="text-[8px] font-bold uppercase tracking-[0.2em] text-[#b45309]">#{m.id}</p>
+                      <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#b45309]">#{m.id}</p>
                       <p className="mt-1 text-[12px] leading-snug text-[#1a1c1d] font-reading-serif line-clamp-2">{m.summary || m.filename}</p>
                     </button>
                   ))}

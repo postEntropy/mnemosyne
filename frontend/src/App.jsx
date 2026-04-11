@@ -3,22 +3,10 @@ import ScreenshotList from './components/ScreenshotList'
 import SearchBar from './components/SearchBar'
 import ScreenshotDetail from './components/ScreenshotDetail'
 import Settings from './components/Settings'
-import Stats from './components/Stats'
 import OnboardingModal from './components/OnboardingModal'
 import AskArchivePanel from './components/AskArchivePanel'
-import { getScreenshots, getScreenshot, getStats, getTags, scanFolder, getScanProgress, getOnboardingInfo, getSettings, getStatus, togglePause, toggleWatcherPause, getHealth, searchScreenshots, ignoreOnboardingPending, askArchive, getAskSuggestions } from './api'
-
-function normalizeTags(rawTags) {
-  if (Array.isArray(rawTags)) return rawTags
-  if (typeof rawTags !== 'string') return []
-
-  try {
-    const parsed = JSON.parse(rawTags)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
+import { getScreenshots, getScreenshot, getStats, getTags, scanFolder, getScanProgress, getOnboardingInfo, getSettings, getStatus, togglePause, toggleWatcherPause, getHealth, searchScreenshots, ignoreOnboardingPending, askArchive, getAskSuggestions, deleteScreenshot } from './api'
+import { normalizeTags, formatAppLabel } from './utils/shared'
 
 const ASK_HISTORY_STORAGE_KEY = 'mnemosyne.askHistory.v1'
 const ASK_HISTORY_LIMIT = 60
@@ -57,7 +45,7 @@ export default function App() {
   const [scanProgress, setScanProgress] = useState(null)
   const [onboarding, setOnboarding] = useState(null)
   const [onboardingDismissed, setOnboardingDismissed] = useState(false)
-  const [health, setHealth] = useState(null)
+  const [_health, setHealth] = useState(null)
   const [uiError, setUiError] = useState('')
   const [showAsk, setShowAsk] = useState(true)
   const [viewMode, setViewMode] = useState('grid')
@@ -426,7 +414,6 @@ export default function App() {
   const handleDelete = async (id) => {
     if (!window.confirm("Permanently remove this memory from the archive?")) return
     try {
-      const { deleteScreenshot } = await import('./api')
       await deleteScreenshot(id)
       setSelected(null)
       loadData({ reset: true, silent: true })
@@ -460,13 +447,6 @@ export default function App() {
 
   const conceptTags = useMemo(() => tags.filter((tag) => tag && tag !== '#'), [tags])
   const topApps = useMemo(() => (stats?.top_apps || []).filter((item) => item.app), [stats])
-  const formatAppLabel = useCallback((app) => {
-    const normalized = String(app || '').trim().toLowerCase()
-    if (['unknown', 'unknown app', 'app not detected', 'capture'].includes(normalized)) {
-      return 'Unknown app'
-    }
-    return app
-  }, [])
   const hasActiveFilter = activeTags.length > 0 || activeApps.length > 0
   const tagCounts = useMemo(() => {
     const counts = new Map()
@@ -631,15 +611,15 @@ export default function App() {
         <div className="px-10 pt-10 pb-6">
           <div className="space-y-2">
             <h1 className="text-3xl font-bold tracking-tight text-[#1a1c1d] leading-none">Mnemosyne</h1>
-            <p className="text-[9px] uppercase tracking-[0.45em] text-[#7f868d] font-bold opacity-80">The Memory Archive</p>
+            <p className="text-[10px] uppercase tracking-[0.35em] text-[#7f868d] font-bold opacity-80">The Memory Archive</p>
           </div>
-          <div className="mt-6 h-px w-full bg-gradient-to-r from-transparent via-[#f0ede9] to-transparent" />
+          <div className="mt-6 h-px w-full bg-gradient-to-r from-transparent via-[#f0ede9] to-transparent" role="presentation" />
         </div>
 
         <nav className="flex-grow overflow-y-auto px-6 space-y-10 custom-scrollbar pb-8 pt-2">
           {/* Main Navigation Section */}
           <div className="space-y-4">
-            <p className="px-4 text-[9px] font-bold text-[#7f868d] uppercase tracking-[0.35em] opacity-80">Collections</p>
+            <p className="px-4 text-[10px] font-bold text-[#7f868d] uppercase tracking-[0.3em] opacity-80">Collections</p>
             <div className="space-y-1">
               {navigation.map((item) => {
                 const isActive = (item.id === 'ask' && showAsk) || (statusFilter === item.id && !showAsk)
@@ -681,7 +661,7 @@ export default function App() {
                       }`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.2} d={item.icon} />
                       </svg>
-                      <span className="text-[13px] font-bold tracking-tight truncate">{item.label}</span>
+                      <span className="text-sm font-bold tracking-tight truncate">{item.label}</span>
                     </div>
                     {item.count !== undefined && (
                       <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border transition-colors ${
@@ -701,11 +681,11 @@ export default function App() {
 
         {/* Footer Actions */}
         <div className="p-7 border-t border-[#f0ede9] glass-soft space-y-3">
-          <p className="px-1 text-[9px] font-bold text-[#7f868d] uppercase tracking-[0.35em] opacity-80">Actions</p>
+          <p className="px-1 text-[10px] font-bold text-[#7f868d] uppercase tracking-[0.3em] opacity-80">Actions</p>
           {scanning && scanProgress && (
             <div className="px-2 mb-6 space-y-3">
                <div className="space-y-1.5">
-                  <div className="flex justify-between text-[8px] font-bold text-[#7f868d] uppercase tracking-widest">
+                  <div className="flex justify-between text-[10px] font-bold text-[#7f868d] uppercase tracking-widest">
                     <span>{paused ? 'Memories Paused' : 'Restoring Memories'}</span>
                     <span>{Math.round((scanProgress.done/scanProgress.total)*100 || 0)}%</span>
                   </div>
@@ -719,7 +699,7 @@ export default function App() {
                
                <button 
                  onClick={handleTogglePause}
-                 className="w-full text-[8px] font-bold text-[#7f868d] hover:text-[#1a1c1d] uppercase tracking-widest transition py-1"
+                 className="w-full text-[10px] font-bold text-[#7f868d] hover:text-[#1a1c1d] uppercase tracking-widest transition py-1"
                >
                   {paused ? 'Resume Analysis' : 'Pause Analysis'}
                </button>
@@ -797,7 +777,7 @@ export default function App() {
                   </svg>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[9px] font-bold uppercase tracking-[0.45em] text-[#94999e] not-italic">Archive Notice</p>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-[#94999e] not-italic">Archive Notice</p>
                   <p className="mt-1 whitespace-pre-wrap">{uiError}</p>
                 </div>
               </div>
@@ -886,7 +866,7 @@ export default function App() {
                               title={`${item.count} captures`}
                             >
                               <span>{formatAppLabel(item.app)}</span>
-                              <span className={`text-[8px] font-semibold leading-none tracking-tight ${
+                              <span className={`text-[9px] font-semibold leading-none tracking-tight ${
                                 activeApps.includes(item.app)
                                   ? 'text-white/85'
                                   : 'text-[#9a4d18]/70'
@@ -910,7 +890,7 @@ export default function App() {
                               }`}
                             >
                               <span>#{tag}</span>
-                              <span className={`text-[8px] font-semibold leading-none tracking-tight ${
+                              <span className={`text-[9px] font-semibold leading-none tracking-tight ${
                                 activeTags.includes(tag)
                                   ? 'text-white/85'
                                   : 'text-[#7f868d]/70'
@@ -954,7 +934,7 @@ export default function App() {
         {!showAsk && (
           <div className="absolute bottom-10 left-0 right-0 flex justify-center items-center pointer-events-none z-40">
              <div className="flex items-center gap-10 bg-white/95 backdrop-blur-2xl border border-[#e8e2d9] px-10 py-5 rounded-3xl shadow-[0_20px_50px_-15px_rgba(15,23,42,0.12)] hover:shadow-[0_40px_80px_-20px_rgba(15,23,42,0.18)] hover:border-[#1a1c1d]/20 transition-all duration-700 pointer-events-auto group">
-                <span className="text-[9px] font-bold text-[#b45309] uppercase tracking-[0.5em] transition-colors opacity-80">Archive Range</span>
+                <span className="text-[10px] font-bold text-[#b45309] uppercase tracking-[0.4em] transition-colors opacity-80">Archive Range</span>
                 <div className="flex items-center gap-6">
                     <input
                       type="date"

@@ -1,108 +1,6 @@
 import { useState } from 'react'
 import { rescanScreenshot } from '../api'
-
-function normalizeTags(rawTags) {
-  if (Array.isArray(rawTags)) return rawTags
-  if (typeof rawTags !== 'string') return []
-
-  try {
-    const parsed = JSON.parse(rawTags)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-function parseJsonObjectFromText(text) {
-  if (typeof text !== 'string') return null
-  const trimmed = text.trim()
-  if (!trimmed) return null
-
-  const direct = trimmed.startsWith('{') ? trimmed : null
-  if (direct) {
-    try {
-      return JSON.parse(direct)
-    } catch {
-      // Fall through to a more forgiving extraction.
-    }
-  }
-
-  const start = trimmed.indexOf('{')
-  const end = trimmed.lastIndexOf('}')
-  if (start === -1 || end === -1 || end <= start) return null
-
-  try {
-    return JSON.parse(trimmed.slice(start, end + 1))
-  } catch {
-    return null
-  }
-}
-
-function sanitizeSummary(screenshot) {
-  const rawSummary = (screenshot.summary || '').trim()
-  const parsedSummary = parseJsonObjectFromText(rawSummary)
-  if (parsedSummary && typeof parsedSummary.summary === 'string' && parsedSummary.summary.trim()) {
-    return parsedSummary.summary.trim()
-  }
-  if (parsedSummary && typeof parsedSummary.description === 'string' && parsedSummary.description.trim()) {
-    return parsedSummary.description.trim().slice(0, 140)
-  }
-  if (rawSummary && !rawSummary.startsWith('{')) {
-    return rawSummary
-  }
-
-  const rawDescription = (screenshot.description || '').trim()
-  const parsedDescription = parseJsonObjectFromText(rawDescription)
-  if (parsedDescription && typeof parsedDescription.summary === 'string' && parsedDescription.summary.trim()) {
-    return parsedDescription.summary.trim()
-  }
-  if (parsedDescription && typeof parsedDescription.description === 'string' && parsedDescription.description.trim()) {
-    return parsedDescription.description.trim().slice(0, 140)
-  }
-
-  return screenshot.filename
-}
-
-function sanitizeDescription(screenshot) {
-  const rawDescription = (screenshot.description || '').trim()
-  const parsedDescription = parseJsonObjectFromText(rawDescription)
-  if (parsedDescription && typeof parsedDescription.description === 'string' && parsedDescription.description.trim()) {
-    return parsedDescription.description.trim()
-  }
-  if (rawDescription && !rawDescription.startsWith('{')) {
-    return rawDescription
-  }
-
-  const rawSummary = (screenshot.summary || '').trim()
-  const parsedSummary = parseJsonObjectFromText(rawSummary)
-  if (parsedSummary && typeof parsedSummary.description === 'string' && parsedSummary.description.trim()) {
-    return parsedSummary.description.trim()
-  }
-  if (parsedSummary && typeof parsedSummary.summary === 'string' && parsedSummary.summary.trim()) {
-    return parsedSummary.summary.trim()
-  }
-
-  return screenshot.filename
-}
-
-function formatCaptureDateTime(timestamp, includeYear = false) {
-  const date = new Date(timestamp)
-  if (Number.isNaN(date.getTime())) return 'Unknown time'
-
-  const datePart = date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    ...(includeYear ? { year: 'numeric' } : {}),
-  })
-
-  const timePart = date.toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
-
-  return `${datePart} • ${timePart}`
-}
+import { normalizeTags, sanitizeSummary, sanitizeDescription, formatCaptureDateTime, getThumbnailUrl } from '../utils/shared'
 
 export default function ScreenshotList({ screenshots, onSelect, onRefresh, onDelete, viewMode = 'grid' }) {
   if (viewMode === 'list') {
@@ -163,9 +61,7 @@ function ScreenshotCard({ screenshot, onSelect, onDelete }) {
     onDelete(screenshot.id)
   }
 
-  const thumbSrc = screenshot.thumbnail_path
-    ? `/thumbnails/${screenshot.thumbnail_path.split('/').pop()}`
-    : null
+  const thumbSrc = getThumbnailUrl(screenshot.thumbnail_path)
 
   const formattedDateTime = formatCaptureDateTime(screenshot.timestamp)
 
@@ -176,6 +72,9 @@ function ScreenshotCard({ screenshot, onSelect, onDelete }) {
   return (
     <div
       onClick={() => onSelect(screenshot)}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(screenshot) } }}
+      role="button"
+      tabIndex={0}
       className="group cursor-pointer flex flex-col space-y-3.5 w-full"
     >
       <div className={`card-archive aspect-[16/9] relative group-hover:-translate-y-1 transition-all duration-300 overflow-hidden ${isAnalyzing ? 'blur-[1.5px] opacity-85' : ''}`}>
@@ -227,7 +126,7 @@ function ScreenshotCard({ screenshot, onSelect, onDelete }) {
         {isAnalyzing && (
           <div className="absolute top-4 right-4">
             <span
-              className={`px-3 py-1 text-[8px] font-bold rounded-md uppercase tracking-[0.2em] backdrop-blur-md shadow-sm border border-white/20 ${
+              className={`px-3 py-1 text-[9px] font-bold rounded-md uppercase tracking-[0.2em] backdrop-blur-md shadow-sm border border-white/20 ${
                 screenshot.status === 'processed' ? 'bg-white/90 text-[#1a1c1d]' : 'bg-[#1a1c1d]/80 text-white'
               }`}
             >
@@ -242,10 +141,10 @@ function ScreenshotCard({ screenshot, onSelect, onDelete }) {
 
       <div className="px-1 space-y-1">
         <div className="flex items-center justify-between">
-          <span className="text-[8px] font-bold text-[#1a1c1d] uppercase tracking-[0.2em]">
+          <span className="text-[9px] font-bold text-[#1a1c1d] uppercase tracking-[0.2em]">
             {screenshot.application || 'App Not Detected'}
           </span>
-          <span className="text-[8px] font-bold text-[#1a1c1d] uppercase tracking-[0.18em] opacity-45">
+          <span className="text-[9px] font-bold text-[#1a1c1d] uppercase tracking-[0.18em] opacity-45">
             {formattedDateTime}
           </span>
         </div>
@@ -261,7 +160,7 @@ function ScreenshotCard({ screenshot, onSelect, onDelete }) {
         {tags.length > 0 && (
             <div className="flex gap-1.5 pt-0.5 overflow-hidden opacity-40 group-hover:opacity-70 transition-opacity">
                 {tags.slice(0, 3).map(tag => (
-                    <span key={tag} className="text-[8px] font-bold text-[#1a1c1d]">#{tag}</span>
+                    <span key={tag} className="text-[9px] font-bold text-[#1a1c1d]">#{tag}</span>
                 ))}
             </div>
         )}
@@ -273,9 +172,7 @@ function ScreenshotCard({ screenshot, onSelect, onDelete }) {
 function ScreenshotListRow({ screenshot, onSelect, onDelete }) {
   const [thumbFailed, setThumbFailed] = useState(false)
 
-  const thumbSrc = screenshot.thumbnail_path
-    ? `/thumbnails/${screenshot.thumbnail_path.split('/').pop()}`
-    : null
+  const thumbSrc = getThumbnailUrl(screenshot.thumbnail_path)
 
   const tags = normalizeTags(screenshot.tags)
   const summary = sanitizeSummary(screenshot)
@@ -334,7 +231,7 @@ function ScreenshotListRow({ screenshot, onSelect, onDelete }) {
             )}
             {isAnalyzing && (
               <div className="absolute top-3 right-3">
-                <span className="px-2.5 py-1 text-[7px] font-bold rounded-md uppercase tracking-[0.2em] bg-[#1a1c1d]/80 text-white border border-white/20 backdrop-blur-md shadow-sm">
+                <span className="px-2.5 py-1 text-[9px] font-bold rounded-md uppercase tracking-[0.2em] bg-[#1a1c1d]/80 text-white border border-white/20 backdrop-blur-md shadow-sm">
                   {screenshot.status.charAt(0).toUpperCase() + screenshot.status.slice(1)}
                 </span>
               </div>
@@ -343,7 +240,7 @@ function ScreenshotListRow({ screenshot, onSelect, onDelete }) {
         </div>
 
         <div className="min-w-0 flex-1 space-y-2.5 pt-1">
-          <div className="flex items-center gap-3 text-[9px] uppercase tracking-[0.2em] font-bold">
+          <div className="flex items-center gap-3 text-[10px] uppercase tracking-[0.2em] font-bold">
             <span className="text-[#1a1c1d]">{screenshot.application || 'App Not Detected'}</span>
             <span className="text-[#94999e]">{formattedDateTime}</span>
           </div>
@@ -358,7 +255,7 @@ function ScreenshotListRow({ screenshot, onSelect, onDelete }) {
           {tags.length > 0 && (
             <div className="flex flex-wrap gap-1.5 pt-1">
               {tags.slice(0, 6).map((tag) => (
-                <span key={tag} className="px-2 py-1 rounded-md text-[9px] font-bold bg-white border border-[#ece7dd] text-[#7f868d]">
+                <span key={tag} className="px-2 py-1 rounded-md text-[10px] font-bold bg-white border border-[#ece7dd] text-[#7f868d]">
                   #{tag}
                 </span>
               ))}
