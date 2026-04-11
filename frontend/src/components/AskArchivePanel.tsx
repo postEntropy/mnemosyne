@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import type { FormEvent, KeyboardEvent, ChangeEvent } from 'react'
+import type { FormEvent, ChangeEvent } from 'react'
 import type { Screenshot, AskSuggestion, AskEntry } from '../types/index.ts'
 
 const FALLBACK_SUGGESTIONS: AskSuggestion[] = [
@@ -59,7 +59,6 @@ export default function AskArchivePanel({
   answer,
   matches,
   onOpenMatch,
-  _provider,
   suggestions = [],
   contextItems = 0,
   retrievedItems = 0,

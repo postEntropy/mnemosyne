@@ -22,7 +22,6 @@ export default function ScreenshotList({ screenshots, onSelect, onRefresh, onDel
               screenshot={ss}
               onSelect={onSelect}
               onDelete={onDelete}
-              onRefresh={onRefresh}
             />
           ))}
         </div>
@@ -50,7 +49,7 @@ export default function ScreenshotList({ screenshots, onSelect, onRefresh, onDel
 interface ScreenshotCardProps {
   screenshot: Screenshot
   onSelect: (screenshot: Screenshot) => void
-  onDelete: (id: number) => void
+  onDelete?: (id: number) => void
   onRefresh: () => void
 }
 
@@ -73,7 +72,7 @@ function ScreenshotCard({ screenshot, onSelect, onDelete }: ScreenshotCardProps)
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation()
-    onDelete(screenshot.id)
+    onDelete?.(screenshot.id)
   }
 
   const thumbSrc = getThumbnailUrl(screenshot.thumbnail_path)
@@ -183,7 +182,7 @@ function ScreenshotCard({ screenshot, onSelect, onDelete }: ScreenshotCardProps)
 interface ScreenshotListRowProps {
   screenshot: Screenshot
   onSelect: (screenshot: Screenshot) => void
-  onDelete: (id: number) => void
+  onDelete?: (id: number) => void
 }
 
 function ScreenshotListRow({ screenshot, onSelect, onDelete }: ScreenshotListRowProps) {
@@ -198,7 +197,7 @@ function ScreenshotListRow({ screenshot, onSelect, onDelete }: ScreenshotListRow
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation()
-    onDelete(screenshot.id)
+    onDelete?.(screenshot.id)
   }
 
   return (

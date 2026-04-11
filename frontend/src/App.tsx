@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type ChangeEvent } from 'react'
-import type { Screenshot, Stats, ScanProgress, OnboardingInfo, AskEntry, AskSuggestion, HealthCheck, StatusInfo, AiDisplay } from './types/index.ts'
+import type { Screenshot, Stats, ScanProgress, OnboardingInfo, AskEntry, AskSuggestion, HealthCheck } from './types/index.ts'
 import ScreenshotList from './components/ScreenshotList.tsx'
 import SearchBar from './components/SearchBar.tsx'
 import ScreenshotDetail from './components/ScreenshotDetail.tsx'
@@ -53,12 +53,12 @@ export default function App() {
   const [askLoading, setAskLoading] = useState<boolean>(false)
   const [askAnswer, setAskAnswer] = useState<string>('')
   const [askMatches, setAskMatches] = useState<Screenshot[]>([])
-  const [askProvider, setAskProvider] = useState<string>('')
+  const [_askProvider, setAskProvider] = useState<string>('')
   const [askContextItems, setAskContextItems] = useState<number>(0)
   const [askRetrievedItems, setAskRetrievedItems] = useState<number>(0)
   const [askSuggestions, setAskSuggestions] = useState<AskSuggestion[]>([])
   const [askHistory, setAskHistory] = useState<AskEntry[]>(() => loadStoredAskHistory())
-  const [activeAskHistoryId, setActiveAskHistoryId] = useState<string | number | null>(null)
+  const [activeAskHistoryId, setActiveAskHistoryId] = useState<number | null>(null)
   const [askQuestionSeed, setAskQuestionSeed] = useState<string>('')
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const loadMoreRef = useRef<HTMLDivElement>(null)
@@ -362,7 +362,7 @@ export default function App() {
         const done = Math.max(0, Math.min(total, (p.data.processed || 0) + (p.data.errors || 0)))
 
             setScanProgress(prev => ({
-                ...prev,
+          queued: prev?.queued ?? 0,
           done,
           total,
                 current_file: p.data.current_file
@@ -516,9 +516,10 @@ export default function App() {
         const res = await scanFolder(batchSize, batchIndex)
         const data = res.data
         setScanProgress(prev => ({
-          ...prev,
           queued: (prev?.queued ?? 0) + data.queued,
           total: data.total_new,
+          done: prev?.done ?? 0,
+          current_file: prev?.current_file ?? null,
         }))
         hasMore = data.has_more
         batchIndex++
@@ -745,7 +746,6 @@ export default function App() {
               loading={askLoading}
               answer={askAnswer}
               matches={askMatches}
-              provider={askProvider}
               suggestions={askSuggestions}
               contextItems={askContextItems}
               retrievedItems={askRetrievedItems}

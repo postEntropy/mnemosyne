@@ -2,12 +2,11 @@ import type {
   Screenshot,
   Stats,
   Settings,
-  ScanProgress,
   OnboardingInfo,
   AskSuggestion,
   HealthCheck,
   StatusInfo,
-} from '../types/index.ts'
+} from './types/index.ts'
 import axios from 'axios'
 
 const api = axios.create({

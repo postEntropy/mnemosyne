@@ -69,7 +69,7 @@ export default function Settings({ onBack }: SettingsProps) {
     setTesting(true)
     setTestResult(null)
     try {
-      const res = await testConnection(settings)
+      const res = await testConnection(settings as unknown as Record<string, unknown>)
       setTestResult({ success: res.data.success, message: res.data.message })
     } catch (e) {
       setTestResult({ success: false, message: 'Connection failed' })
