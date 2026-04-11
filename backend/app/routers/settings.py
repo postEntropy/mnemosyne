@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.database import get_db
 from app.models.settings import Setting
+from app.config import settings as app_settings
 from app.services.analyzer import get_provider
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -11,6 +12,12 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 class SettingsUpdate(BaseModel):
     ai_provider: str | None = None
+    ask_provider: str | None = None
+    ask_openrouter_model: str | None = None
+    ask_default_mode: str | None = None
+    ask_quick_limit: str | None = None
+    ask_balanced_limit: str | None = None
+    ask_deep_limit: str | None = None
     ollama_base_url: str | None = None
     ollama_model: str | None = None
     openrouter_api_key: str | None = None
@@ -34,6 +41,18 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
     # Ensure ui_scale has a default if not set
     if "ui_scale" not in settings:
         settings["ui_scale"] = "1.0"
+    if "ask_provider" not in settings:
+        settings["ask_provider"] = app_settings.ask_provider
+    if "ask_openrouter_model" not in settings:
+        settings["ask_openrouter_model"] = app_settings.ask_openrouter_model
+    if "ask_default_mode" not in settings:
+        settings["ask_default_mode"] = app_settings.ask_default_mode
+    if "ask_quick_limit" not in settings:
+        settings["ask_quick_limit"] = str(app_settings.ask_quick_limit)
+    if "ask_balanced_limit" not in settings:
+        settings["ask_balanced_limit"] = str(app_settings.ask_balanced_limit)
+    if "ask_deep_limit" not in settings:
+        settings["ask_deep_limit"] = str(app_settings.ask_deep_limit)
 
     if "openrouter_api_key" in settings and settings["openrouter_api_key"]:
         key = settings["openrouter_api_key"]

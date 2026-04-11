@@ -4,11 +4,15 @@ const api = axios.create({
   baseURL: '/api',
 })
 
-export const getScreenshots = (page = 1, limit = 20, status = null, dateFrom = '', dateTo = '') => {
-  const params = { page, limit }
-  if (status) params.status = status
-  if (dateFrom) params.date_from = dateFrom
-  if (dateTo) params.date_to = dateTo
+export const getScreenshots = (page = 1, limit = 20, status = null, dateFrom = '', dateTo = '', tags = [], apps = []) => {
+  const params = new URLSearchParams()
+  params.set('page', String(page))
+  params.set('limit', String(limit))
+  if (status) params.set('status', status)
+  if (dateFrom) params.set('date_from', dateFrom)
+  if (dateTo) params.set('date_to', dateTo)
+  tags.filter(Boolean).forEach((tag) => params.append('tags', tag))
+  apps.filter(Boolean).forEach((app) => params.append('apps', app))
   return api.get('/screenshots', { params })
 }
 
@@ -27,6 +31,9 @@ export const getTags = () => api.get('/screenshots/tags')
 export const getStats = () => api.get('/screenshots/stats')
 
 export const rescanScreenshot = (id) => api.post(`/screenshots/${id}/rescan`)
+
+export const updateScreenshotTags = (id, tags) =>
+  api.put(`/screenshots/${id}/tags`, { tags })
 
 export const deleteScreenshot = (id) => api.delete(`/screenshots/${id}`)
 
@@ -53,6 +60,9 @@ export const ignoreOnboardingPending = () => api.post('/screenshots/onboarding/i
 
 export const askArchive = (question, limit = 8) =>
   api.post('/screenshots/ask-archive', { question, limit })
+
+export const getAskSuggestions = (refresh = false) =>
+  api.get('/screenshots/ask-suggestions', { params: { refresh } })
 
 export const getHealth = () => api.get('/health')
 

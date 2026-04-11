@@ -2,7 +2,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -10,12 +10,9 @@ from sqlalchemy import select, func
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
 )
-
-logger = logging.getLogger("mnemosyne")
 
 from app.services.queue_worker import QueueWorker
 from app.services.watcher import start_watcher

@@ -8,16 +8,40 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.database import get_db
 from app.models.dead_letter import DeadLetterItem
 from app.models.screenshot import Screenshot
-from app.services.archive_qa import ask_archive
+from app.services.archive_qa import ask_archive, suggest_archive_questions
+
+try:
+    import tiktoken
+except Exception:  # pragma: no cover - optional dependency fallback
+    tiktoken = None
 
 logger = logging.getLogger("mnemosyne.router.screenshots")
+logger.setLevel(logging.DEBUG)
 
 router = APIRouter(prefix="/api/screenshots", tags=["screenshots"])
+
+ASK_SUGGESTIONS_CACHE = {
+    "items": [],
+    "updated_at": None,
+}
+ASK_SUGGESTIONS_TTL_SECONDS = 180
+
+DB_TOKEN_ESTIMATE_CACHE = {
+    "payload": None,
+    "updated_at": None,
+}
+DB_TOKEN_ESTIMATE_TTL_SECONDS = 120
+DB_TOKENIZER_ENCODING = "cl100k_base"
 
 
 class AskArchiveRequest(BaseModel):
     question: str
     limit: int = 8
+    mode: str | None = None
+
+
+class UpdateTagsRequest(BaseModel):
+    tags: list[str]
 
 
 def _list_supported_files(watch_dir, extensions):
@@ -28,6 +52,109 @@ def _list_supported_files(watch_dir, extensions):
         raise HTTPException(status_code=500, detail="Failed to read screenshots folder")
 
 
+def _normalize_app_name(value: str | None) -> str | None:
+    if not value:
+        return None
+    app = value.strip()
+    if not app:
+        return None
+    blocked = {
+        "unknown",
+        "app not detected",
+        "capture",
+        "unknown app",
+    }
+    if app.lower() in blocked:
+        return None
+    return app
+
+
+def _extract_tags(raw_tags: str | None) -> list[str]:
+    if not raw_tags:
+        return []
+    try:
+        parsed = json.loads(raw_tags)
+        if not isinstance(parsed, list):
+            return []
+        return [str(tag).strip() for tag in parsed if str(tag).strip() and str(tag).strip() != "#"]
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def _estimate_tokens_from_chars(total_chars: int) -> int:
+    # Fast approximation that tracks OpenAI-like tokenization reasonably well for mixed text.
+    return max(0, int(round(total_chars / 4.0)))
+
+
+def _build_tokenizable_text(ss: Screenshot) -> str:
+    return "\n".join(
+        [
+            ss.description or "",
+            ss.summary or "",
+            ss.application or "",
+            ss.filename or "",
+            ss.tags or "",
+        ]
+    )
+
+
+async def _get_db_token_estimate(db: AsyncSession) -> dict:
+    now = datetime.utcnow()
+    cached_at = DB_TOKEN_ESTIMATE_CACHE.get("updated_at")
+    cached_payload = DB_TOKEN_ESTIMATE_CACHE.get("payload")
+
+    if (
+        cached_payload
+        and cached_at is not None
+        and (now - cached_at).total_seconds() < DB_TOKEN_ESTIMATE_TTL_SECONDS
+    ):
+        return cached_payload
+
+    rows = (
+        await db.execute(
+            select(Screenshot)
+            .where(Screenshot.status != "ignored")
+            .order_by(Screenshot.id.asc())
+        )
+    ).scalars().all()
+
+    rows_counted = len(rows)
+    total_chars = 0
+    total_tokens = 0
+    tokenizer_name = "heuristic_chars_div_4"
+
+    if tiktoken is not None:
+        try:
+            encoding = tiktoken.get_encoding(DB_TOKENIZER_ENCODING)
+            tokenizer_name = f"tiktoken:{DB_TOKENIZER_ENCODING}"
+            for ss in rows:
+                text = _build_tokenizable_text(ss)
+                total_chars += len(text)
+                total_tokens += len(encoding.encode(text))
+        except Exception:
+            logger.exception("DB token estimate fell back to heuristic")
+            total_tokens = 0
+
+    if total_tokens <= 0:
+        total_chars = 0
+        for ss in rows:
+            text = _build_tokenizable_text(ss)
+            total_chars += len(text)
+        total_tokens = _estimate_tokens_from_chars(total_chars)
+
+    payload = {
+        "db_total_tokens_estimate": total_tokens,
+        "db_total_chars": total_chars,
+        "db_rows_counted": rows_counted,
+        "tokenizer_name": tokenizer_name,
+        "token_count_updated_at": now.isoformat(),
+    }
+
+    DB_TOKEN_ESTIMATE_CACHE["payload"] = payload
+    DB_TOKEN_ESTIMATE_CACHE["updated_at"] = now
+    return payload
+
+
 @router.get("")
 async def list_screenshots(
     page: int = Query(1, ge=1),
@@ -35,6 +162,8 @@ async def list_screenshots(
     status: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    tags: list[str] = Query(default=[]),
+    apps: list[str] = Query(default=[]),
     db: AsyncSession = Depends(get_db),
 ):
     base_query = select(Screenshot)
@@ -56,6 +185,14 @@ async def list_screenshots(
             base_query = base_query.where(Screenshot.timestamp <= dt)
         except ValueError:
             pass
+
+    normalized_tags = [tag.strip() for tag in tags if tag and tag.strip()]
+    for tag in normalized_tags:
+        base_query = base_query.where(Screenshot.tags.ilike(f'%"{tag}"%'))
+
+    normalized_apps = [app.strip() for app in apps if app and app.strip()]
+    if normalized_apps:
+        base_query = base_query.where(Screenshot.application.in_(normalized_apps))
 
     # Count total for this specific filter
     count_query = select(func.count()).select_from(base_query.subquery())
@@ -183,6 +320,8 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     )
     top_apps = [{"app": row[0], "count": row[1]} for row in apps_result.all()]
 
+    token_stats = await _get_db_token_estimate(db)
+
     return {
         "total": total,
         "processed": processed,
@@ -190,7 +329,133 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
         "processing": processing,
         "errors": errors,
         "top_apps": top_apps,
+        **token_stats,
     }
+
+
+@router.get("/ask-suggestions")
+async def get_ask_suggestions(
+    refresh: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+):
+    logger.info("Ask suggestions requested (refresh=%s)", refresh)
+    now = datetime.utcnow()
+    cache_time = ASK_SUGGESTIONS_CACHE.get("updated_at")
+    cache_items = ASK_SUGGESTIONS_CACHE.get("items") or []
+
+    if (
+        not refresh
+        and cache_time is not None
+        and (now - cache_time).total_seconds() < ASK_SUGGESTIONS_TTL_SECONDS
+        and cache_items
+    ):
+        logger.info("Ask suggestions served from cache (count=%d)", len(cache_items))
+        return {"suggestions": cache_items, "cached": True}
+
+    rows = (
+        await db.execute(
+            select(
+                Screenshot.application,
+                Screenshot.tags,
+                Screenshot.summary,
+                Screenshot.filename,
+            )
+            .where(Screenshot.status == "processed")
+            .where(Screenshot.status != "ignored")
+            .order_by(Screenshot.timestamp.desc())
+            .limit(600)
+        )
+    ).all()
+
+    app_counts: dict[str, int] = {}
+    tag_counts: dict[str, int] = {}
+
+    for app_raw, tags_raw, _, _ in rows:
+        app = _normalize_app_name(app_raw)
+        if app:
+            app_counts[app] = app_counts.get(app, 0) + 1
+
+        for tag in _extract_tags(tags_raw):
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+    top_apps = sorted(app_counts.items(), key=lambda item: item[1], reverse=True)
+    top_tags = sorted(tag_counts.items(), key=lambda item: item[1], reverse=True)
+
+    suggestions = [
+        {
+            "title": "Latest screenshot details",
+            "prompt": "What are the most important details visible in my latest screenshots?",
+            "kind": "timeline",
+        }
+    ]
+
+    if top_apps:
+        app_name, _ = top_apps[0]
+        suggestions.append(
+            {
+                "title": f"Recent progress in {app_name}",
+                "prompt": f"What changed in my recent {app_name} screenshots, and which values or states stand out?",
+                "kind": "application",
+            }
+        )
+
+    if top_tags:
+        tag_name, _ = top_tags[0]
+        suggestions.append(
+            {
+                "title": f"Evidence for #{tag_name}",
+                "prompt": f"Show the screenshots tagged with {tag_name} and summarize the concrete events they capture.",
+                "kind": "tag",
+            }
+        )
+
+    # Guarantee exactly 3 suggestions, prioritizing screenshot-derived prompts.
+    while len(suggestions) < 3:
+        fallback_candidates = [
+            {
+                "title": "Change since yesterday",
+                "prompt": "Based on yesterday versus today screenshots, what changed the most?",
+                "kind": "timeline",
+            },
+            {
+                "title": "Visible numbers and stats",
+                "prompt": "Which screenshots contain clear numeric values or stats, and what are they?",
+                "kind": "application",
+            },
+        ]
+        next_item = fallback_candidates[len(suggestions) % len(fallback_candidates)]
+        suggestions.append(next_item)
+
+    ai_suggestions = await suggest_archive_questions(db, limit=3)
+    final_suggestions = []
+    seen_prompts = set()
+
+    for item in ai_suggestions:
+        prompt = (item.get("prompt") or "").strip()
+        if not prompt or prompt in seen_prompts:
+            continue
+        final_suggestions.append(item)
+        seen_prompts.add(prompt)
+        if len(final_suggestions) >= 3:
+            break
+
+    if len(final_suggestions) < 3:
+        for item in suggestions:
+            prompt = (item.get("prompt") or "").strip()
+            if not prompt or prompt in seen_prompts:
+                continue
+            final_suggestions.append(item)
+            seen_prompts.add(prompt)
+            if len(final_suggestions) >= 3:
+                break
+
+    final_suggestions = final_suggestions[:3]
+    ASK_SUGGESTIONS_CACHE["items"] = final_suggestions
+    ASK_SUGGESTIONS_CACHE["updated_at"] = now
+
+    logger.info("Ask suggestions refreshed (count=%d, used_ai=%s)", len(final_suggestions), bool(ai_suggestions))
+
+    return {"suggestions": final_suggestions, "cached": False}
 
 
 @router.get("/scan-progress")
@@ -337,6 +602,33 @@ async def rescan_screenshot(
     worker = request.app.state.worker
     await worker.enqueue(screenshot.file_path)
     return {"message": "Screenshot queued for rescanning"}
+
+
+@router.put("/{screenshot_id}/tags")
+async def update_screenshot_tags(
+    screenshot_id: int,
+    payload: UpdateTagsRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Screenshot).where(Screenshot.id == screenshot_id))
+    screenshot = result.scalar_one_or_none()
+    if not screenshot:
+        raise HTTPException(status_code=404, detail="Screenshot not found")
+
+    cleaned_tags = []
+    seen = set()
+    for tag in payload.tags:
+        cleaned = " ".join((tag or "").strip().split())
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        cleaned_tags.append(cleaned)
+
+    screenshot.tags = json.dumps(cleaned_tags)
+    await db.commit()
+    await db.refresh(screenshot)
+
+    return {"message": "Screenshot tags updated", "screenshot": screenshot.to_dict()}
 
 
 @router.get("/dlq")
@@ -510,9 +802,23 @@ async def ask_archive_endpoint(
     payload: AskArchiveRequest, db: AsyncSession = Depends(get_db)
 ):
     question = (payload.question or "").strip()
+    logger.info(
+        "Ask archive requested (question_chars=%d, limit=%s, mode=%s)",
+        len(question),
+        payload.limit,
+        payload.mode,
+    )
     if len(question) < 3:
         raise HTTPException(status_code=400, detail="Question is too short")
 
     limit = max(1, min(payload.limit, 15))
-    result = await ask_archive(db, question=question, limit=limit)
+    mode = (payload.mode or "").strip().lower() or None
+    result = await ask_archive(db, question=question, limit=limit, mode=mode)
+    logger.info(
+        "Ask archive completed (provider=%s, context_items=%s, retrieved_items=%s, matches=%d)",
+        result.get("provider"),
+        result.get("context_items"),
+        result.get("retrieved_items"),
+        len(result.get("matches") or []),
+    )
     return result

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { rescanScreenshot } from '../api'
 
 function normalizeTags(rawTags) {
   if (Array.isArray(rawTags)) return rawTags
@@ -141,6 +142,20 @@ export default function ScreenshotList({ screenshots, onSelect, onRefresh, onDel
 
 function ScreenshotCard({ screenshot, onSelect, onDelete }) {
   const [thumbFailed, setThumbFailed] = useState(false)
+  const [rescanning, setRescanning] = useState(false)
+
+  const handleRescanClick = async (e) => {
+    e.stopPropagation()
+    if (rescanning) return
+    setRescanning(true)
+    try {
+      await rescanScreenshot(screenshot.id)
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setRescanning(false)
+    }
+  }
 
   const handleDeleteClick = (e) => {
     e.stopPropagation()
@@ -165,16 +180,29 @@ function ScreenshotCard({ screenshot, onSelect, onDelete }) {
     >
       <div className={`card-archive aspect-[16/9] relative group-hover:-translate-y-1 transition-all duration-300 overflow-hidden ${isAnalyzing ? 'blur-[1.5px] opacity-85' : ''}`}>
         {onDelete && (
-          <button
-            onClick={handleDeleteClick}
-            className="absolute top-3 right-3 z-20 h-8 w-8 rounded-lg border border-rose-200/40 bg-rose-700/32 text-rose-100 shadow-[0_8px_22px_-10px_rgba(244,63,94,0.45)] backdrop-blur-md opacity-0 group-hover:opacity-100 hover:bg-rose-600/75 hover:text-white hover:scale-105 hover:shadow-[0_14px_30px_-12px_rgba(244,63,94,0.7)] transition-all duration-200 flex items-center justify-center"
-            aria-label="Delete screenshot"
-            title="Delete screenshot"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16" />
-            </svg>
-          </button>
+          <div className="absolute top-3 right-3 z-20 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+            <button
+              onClick={handleRescanClick}
+              className="h-8 w-8 rounded-lg border border-amber-200/40 bg-amber-700/28 text-amber-50 shadow-[0_8px_22px_-10px_rgba(245,158,11,0.35)] backdrop-blur-md hover:bg-amber-600/70 hover:text-white hover:scale-105 hover:shadow-[0_14px_30px_-12px_rgba(245,158,11,0.6)] transition-all duration-200 flex items-center justify-center"
+              aria-label="Reanalyze screenshot"
+              title="Reanalyze screenshot"
+              disabled={rescanning}
+            >
+              <svg className={`h-4 w-4 ${rescanning ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 4v5h.582m15.356 2A8 8 0 004.582 9m0 0H10m10 11v-5h-.581m0 0A8.001 8.001 0 014.644 15m15.355 0H14" />
+              </svg>
+            </button>
+            <button
+              onClick={handleDeleteClick}
+              className="h-8 w-8 rounded-lg border border-rose-200/40 bg-rose-700/32 text-rose-100 shadow-[0_8px_22px_-10px_rgba(244,63,94,0.45)] backdrop-blur-md hover:bg-rose-600/75 hover:text-white hover:scale-105 hover:shadow-[0_14px_30px_-12px_rgba(244,63,94,0.7)] transition-all duration-200 flex items-center justify-center"
+              aria-label="Delete screenshot"
+              title="Delete screenshot"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16" />
+              </svg>
+            </button>
+          </div>
         )}
 
         {thumbSrc && !thumbFailed ? (

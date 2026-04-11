@@ -6,7 +6,7 @@ import Settings from './components/Settings'
 import Stats from './components/Stats'
 import OnboardingModal from './components/OnboardingModal'
 import AskArchivePanel from './components/AskArchivePanel'
-import { getScreenshots, getScreenshot, getStats, getTags, scanFolder, getScanProgress, getOnboardingInfo, getSettings, getStatus, togglePause, toggleWatcherPause, getHealth, searchScreenshots, ignoreOnboardingPending, askArchive } from './api'
+import { getScreenshots, getScreenshot, getStats, getTags, scanFolder, getScanProgress, getOnboardingInfo, getSettings, getStatus, togglePause, toggleWatcherPause, getHealth, searchScreenshots, ignoreOnboardingPending, askArchive, getAskSuggestions } from './api'
 
 function normalizeTags(rawTags) {
   if (Array.isArray(rawTags)) return rawTags
@@ -14,6 +14,20 @@ function normalizeTags(rawTags) {
 
   try {
     const parsed = JSON.parse(rawTags)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+const ASK_HISTORY_STORAGE_KEY = 'mnemosyne.askHistory.v1'
+const ASK_HISTORY_LIMIT = 60
+
+function loadStoredAskHistory() {
+  try {
+    const raw = localStorage.getItem(ASK_HISTORY_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
     return Array.isArray(parsed) ? parsed : []
   } catch {
     return []
@@ -31,6 +45,7 @@ export default function App() {
   const [hasMorePages, setHasMorePages] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [activeTags, setActiveTags] = useState([])
+  const [activeApps, setActiveApps] = useState([])
   const [statusFilter, setStatusFilter] = useState(null)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -50,10 +65,47 @@ export default function App() {
   const [askAnswer, setAskAnswer] = useState('')
   const [askMatches, setAskMatches] = useState([])
   const [askProvider, setAskProvider] = useState('')
+  const [askContextItems, setAskContextItems] = useState(0)
+  const [askRetrievedItems, setAskRetrievedItems] = useState(0)
+  const [askSuggestions, setAskSuggestions] = useState([])
+  const [askHistory, setAskHistory] = useState(() => loadStoredAskHistory())
+  const [activeAskHistoryId, setActiveAskHistoryId] = useState(null)
+  const [askQuestionSeed, setAskQuestionSeed] = useState('')
   const scrollContainerRef = useRef(null)
   const loadMoreRef = useRef(null)
   const statsRef = useRef(null)
   const autoRefreshInFlightRef = useRef(false)
+  const loadingMoreRef = useRef(false)
+  const loadMoreRequestRef = useRef(false)
+  const activeTagsRef = useRef(activeTags)
+  const activeAppsRef = useRef(activeApps)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ASK_HISTORY_STORAGE_KEY, JSON.stringify(askHistory))
+    } catch (e) {
+      console.error(e)
+    }
+  }, [askHistory])
+
+  const hydrateAskFromHistory = useCallback((entry) => {
+    if (!entry) return
+    setAskAnswer(entry.answer || '')
+    setAskMatches(Array.isArray(entry.matches) ? entry.matches : [])
+    setAskProvider(entry.provider || '')
+    setAskContextItems(Number(entry.contextItems || 0))
+    setAskRetrievedItems(Number(entry.retrievedItems || 0))
+    setAskQuestionSeed(entry.question || '')
+    setActiveAskHistoryId(entry.id)
+  }, [])
+
+  useEffect(() => {
+    activeTagsRef.current = activeTags
+  }, [activeTags])
+
+  useEffect(() => {
+    activeAppsRef.current = activeApps
+  }, [activeApps])
 
   const navigate = useCallback((path) => {
     if (window.location.pathname === path) return
@@ -98,6 +150,30 @@ export default function App() {
       })
   }, [routePath, screenshots, selected])
 
+  useEffect(() => {
+    if (routePath === '/ask') {
+      setShowAsk(true)
+      setStatusFilter(null)
+      setActiveAskHistoryId(null)
+      return
+    }
+
+    if (!routePath.startsWith('/ask/')) return
+
+    setShowAsk(true)
+    setStatusFilter(null)
+
+    const askId = routePath.split('/')[2]
+    const existing = askHistory.find((item) => String(item.id) === String(askId))
+    if (existing) {
+      hydrateAskFromHistory(existing)
+      return
+    }
+
+    window.history.replaceState({}, '', '/ask')
+    setRoutePath('/ask')
+  }, [routePath, askHistory, hydrateAskFromHistory])
+
   const loadMeta = useCallback(async () => {
     try {
       const [statsRes, tagsRes, statusRes, healthRes] = await Promise.all([
@@ -120,18 +196,19 @@ export default function App() {
     }
   }, [])
 
-  const loadData = useCallback(async ({ reset = true, silent = false, query = searchQuery, refreshMeta = true } = {}) => {
+  const loadData = useCallback(async ({ reset = true, silent = false, query = searchQuery, refreshMeta = true, tags = activeTagsRef.current, apps = activeAppsRef.current } = {}) => {
     const nextPage = reset ? 1 : page + 1
 
     if (reset && !silent) setLoading(true)
     if (!reset) setLoadingMore(true)
+    if (!reset) loadingMoreRef.current = true
 
     try {
       setUiError('')
 
       const ssRes = query
         ? await searchScreenshots(query, nextPage, PAGE_SIZE)
-        : await getScreenshots(nextPage, PAGE_SIZE, statusFilter, dateFrom, dateTo)
+        : await getScreenshots(nextPage, PAGE_SIZE, statusFilter, dateFrom, dateTo, tags, apps)
 
       const nextScreenshots = ssRes.data.screenshots || []
       const totalPages = ssRes.data.pages || 1
@@ -155,6 +232,7 @@ export default function App() {
     } finally {
       setLoading(false)
       setLoadingMore(false)
+      if (!reset) loadingMoreRef.current = false
     }
   }, [page, statusFilter, dateFrom, dateTo, searchQuery, loadMeta])
 
@@ -192,6 +270,39 @@ export default function App() {
   }, []) // Empty deps - only run once on mount
 
   useEffect(() => {
+    let isUnmounted = false
+
+    const loadSuggestions = async (refresh = false) => {
+      try {
+        const res = await getAskSuggestions(refresh)
+        const suggestions = res?.data?.suggestions || []
+        if (!isUnmounted) {
+          setAskSuggestions(Array.isArray(suggestions) ? suggestions : [])
+        }
+      } catch (e) {
+        console.error(e)
+      }
+    }
+
+    loadSuggestions(false)
+
+    if (!showAsk) {
+      return () => {
+        isUnmounted = true
+      }
+    }
+
+    const interval = setInterval(() => {
+      loadSuggestions(true)
+    }, 480000)
+
+    return () => {
+      isUnmounted = true
+      clearInterval(interval)
+    }
+  }, [showAsk])
+
+  useEffect(() => {
     loadData({ reset: true })
   }, [loadData])
 
@@ -223,7 +334,7 @@ export default function App() {
   }, [loadMeta, loadData])
 
   useEffect(() => {
-    if (showAsk || loading || loadingMore || !hasMorePages) return
+    if (showAsk || loading || !hasMorePages) return
     const sentinel = loadMoreRef.current
     const root = scrollContainerRef.current
     if (!sentinel || !root) return
@@ -231,7 +342,11 @@ export default function App() {
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting) {
-          loadData({ reset: false, silent: true })
+          if (loadingMoreRef.current || loadMoreRequestRef.current) return
+          loadMoreRequestRef.current = true
+          Promise.resolve(loadData({ reset: false, silent: true })).finally(() => {
+            loadMoreRequestRef.current = false
+          })
         }
       },
       { root, rootMargin: '240px 0px' }
@@ -239,7 +354,7 @@ export default function App() {
 
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [showAsk, loading, loadingMore, hasMorePages, loadData])
+  }, [showAsk, loading, hasMorePages, loadData])
 
   // Sync scan progress if scanning is active
   useEffect(() => {
@@ -274,7 +389,7 @@ export default function App() {
         if (idleTicks >= 2) {
                 setScanning(false)
                 setScanProgress(null)
-                loadData(true)
+          loadData({ reset: true })
             }
 
         // Safety net: stop polling after 10 minutes.
@@ -301,7 +416,8 @@ export default function App() {
     setShowAsk(false)
     if (!q) {
       setActiveTags([])
-      await loadData({ reset: true, query: '' })
+      setActiveApps([])
+      await loadData({ reset: true, query: '', tags: [], apps: [] })
       return
     }
     await loadData({ reset: true, query: q })
@@ -321,22 +437,81 @@ export default function App() {
   }
 
   const handleTagClick = (tag) => {
+    const nextActiveTags = activeTags.includes(tag)
+      ? activeTags.filter((t) => t !== tag)
+      : [...activeTags, tag]
     setPage(1)
     setSearchQuery('')
     setShowAsk(false)
-    loadData({ reset: true, query: '' })
-    setActiveTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))
+    setActiveTags(nextActiveTags)
+    loadData({ reset: true, query: '', tags: nextActiveTags, apps: activeAppsRef.current })
+  }
+
+  const handleAppClick = (app) => {
+    const nextActiveApps = activeApps.includes(app)
+      ? activeApps.filter((item) => item !== app)
+      : [...activeApps, app]
+    setPage(1)
+    setSearchQuery('')
+    setShowAsk(false)
+    setActiveApps(nextActiveApps)
+    loadData({ reset: true, query: '', tags: activeTagsRef.current, apps: nextActiveApps })
   }
 
   const conceptTags = useMemo(() => tags.filter((tag) => tag && tag !== '#'), [tags])
-
-  const filteredScreenshots = useMemo(() => {
-    if (activeTags.length === 0) return screenshots
-    return screenshots.filter((ss) => {
-      const ssTags = normalizeTags(ss.tags)
-      return activeTags.every((tag) => ssTags.includes(tag))
+  const topApps = useMemo(() => (stats?.top_apps || []).filter((item) => item.app), [stats])
+  const formatAppLabel = useCallback((app) => {
+    const normalized = String(app || '').trim().toLowerCase()
+    if (['unknown', 'unknown app', 'app not detected', 'capture'].includes(normalized)) {
+      return 'Unknown app'
+    }
+    return app
+  }, [])
+  const hasActiveFilter = activeTags.length > 0 || activeApps.length > 0
+  const tagCounts = useMemo(() => {
+    const counts = new Map()
+    for (const screenshot of screenshots) {
+      for (const tag of normalizeTags(screenshot.tags)) {
+        if (!tag || tag === '#') continue
+        counts.set(tag, (counts.get(tag) || 0) + 1)
+      }
+    }
+    return counts
+  }, [screenshots])
+  const sortedTopApps = useMemo(() => {
+    return [...topApps].sort((a, b) => {
+      const countDiff = (b.count || 0) - (a.count || 0)
+      if (countDiff !== 0) return countDiff
+      return a.app.localeCompare(b.app)
     })
-  }, [screenshots, activeTags])
+  }, [topApps])
+  const sortedConceptTags = useMemo(() => {
+    return [...conceptTags].sort((a, b) => {
+      const countDiff = (tagCounts.get(b) || 0) - (tagCounts.get(a) || 0)
+      if (countDiff !== 0) return countDiff
+      return a.localeCompare(b)
+    })
+  }, [conceptTags, tagCounts])
+
+  const filteredScreenshots = screenshots
+
+  const hasMatchForTag = useCallback((candidateTag) => {
+    return screenshots.some((ss) => {
+      const ssTags = normalizeTags(ss.tags)
+      const matchesCurrentTags = activeTags.every((tag) => ssTags.includes(tag))
+      const matchesCurrentApps = activeApps.length === 0 || activeApps.includes(ss.application || 'Unknown')
+      return matchesCurrentTags && matchesCurrentApps && ssTags.includes(candidateTag)
+    })
+  }, [screenshots, activeTags, activeApps])
+
+  const hasMatchForApp = useCallback((candidateApp) => {
+    return screenshots.some((ss) => {
+      const ssTags = normalizeTags(ss.tags)
+      const matchesCurrentTags = activeTags.every((tag) => ssTags.includes(tag))
+      const matchesCurrentApps = activeApps.length === 0 || activeApps.includes(ss.application || 'Unknown')
+      return matchesCurrentTags && matchesCurrentApps && (ss.application || 'Unknown') === candidateApp
+    })
+  }, [screenshots, activeTags, activeApps])
 
   const openScreenshot = useCallback((screenshot) => {
     setSelected(screenshot)
@@ -404,9 +579,20 @@ export default function App() {
     try {
       setUiError('')
       const res = await askArchive(question, 8)
-      setAskAnswer(res.data.answer || '')
-      setAskMatches(res.data.matches || [])
-      setAskProvider(res.data.provider || '')
+      const entry = {
+        id: Date.now(),
+        question,
+        answer: res.data.answer || '',
+        matches: res.data.matches || [],
+        provider: res.data.provider || '',
+        contextItems: Number(res.data.context_items || 0),
+        retrievedItems: Number(res.data.retrieved_items || 0),
+        createdAt: new Date().toISOString(),
+      }
+
+      setAskHistory((prev) => [entry, ...prev].slice(0, ASK_HISTORY_LIMIT))
+      hydrateAskFromHistory(entry)
+      navigate(`/ask/${entry.id}`)
     } catch (e) {
       console.error(e)
       setUiError('Nao foi possivel consultar o arquivo agora.')
@@ -431,7 +617,7 @@ export default function App() {
   }
 
   const navigation = [
-    { id: 'ask', label: 'Ask Oracle', icon: 'M13 10V3L4 14h7v7l9-11h-7z' },
+    { id: 'ask', label: 'Ask Mnemosyne', icon: 'M13 10V3L4 14h7v7l9-11h-7z' },
     { id: null, label: 'All Memories', count: stats?.total, icon: 'M4 6h16M4 10h16M4 14h16M4 18h16' },
     { id: 'processed', label: 'Analyzed', count: stats?.processed, icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
     { id: 'processing', label: 'In Progress', count: (stats?.processing || 0) + (stats?.pending || 0), icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
@@ -463,15 +649,20 @@ export default function App() {
                     key={item.id}
                     onClick={() => { 
                       if (item.id === 'ask') {
-                        setShowAsk(true);
-                        setStatusFilter(null);
+                        setShowAsk(true)
+                        setStatusFilter(null)
+                        navigate('/ask')
                       } else {
-                        setShowAsk(false);
-                        setStatusFilter(item.id); 
+                        setShowAsk(false)
+                        setStatusFilter(item.id)
+                        if (routePath.startsWith('/ask')) {
+                          navigate('/')
+                        }
                       }
-                      setPage(1);
+                      setPage(1)
                       setSearchQuery('')
                       setActiveTags([])
+                      setActiveApps([])
                     }}
                     className={`w-full relative overflow-hidden flex items-center justify-between pl-5 pr-4 py-3 rounded-2xl transition-all duration-500 group ${
                       isActive
@@ -551,7 +742,7 @@ export default function App() {
             onClick={() => navigate('/settings')}
             className="w-full btn-primary text-[10px] py-2.5"
           >
-            Oracle Settings
+            Settings
           </button>
         </div>
       </aside>
@@ -574,6 +765,21 @@ export default function App() {
               answer={askAnswer}
               matches={askMatches}
               provider={askProvider}
+              suggestions={askSuggestions}
+              contextItems={askContextItems}
+              retrievedItems={askRetrievedItems}
+              dbTokenEstimate={Number(stats?.db_total_tokens_estimate || 0)}
+              dbTokenUpdatedAt={stats?.token_count_updated_at || ''}
+              dbTokenizerName={stats?.tokenizer_name || ''}
+              historyEntries={askHistory}
+              activeHistoryId={activeAskHistoryId}
+              initialQuestion={askQuestionSeed}
+              onSelectHistory={(entryId) => {
+                const selectedEntry = askHistory.find((item) => item.id === entryId)
+                if (!selectedEntry) return
+                hydrateAskFromHistory(selectedEntry)
+                navigate(`/ask/${selectedEntry.id}`)
+              }}
               onOpenMatch={openScreenshot}
               dateFrom={dateFrom}
               setDateFrom={(v) => { setDateFrom(v); setPage(1); }}
@@ -659,24 +865,58 @@ export default function App() {
                 </div>
               </div>
             ) : (
-              <div className={`space-y-16 transition-all duration-500 ${loading ? 'opacity-50' : 'opacity-100'} ${showAsk ? 'mt-8 md:mt-12 pb-20' : ''}`}>
-                <div className={tags.length > 0 ? 'space-y-6' : ''}>
-                  {conceptTags.length > 0 && (
+              <div className={`space-y-10 transition-all duration-500 ${loading ? 'opacity-50' : 'opacity-100'} ${showAsk ? 'mt-12 md:mt-16 pb-16' : ''}`}>
+                <div className={(conceptTags.length > 0 || topApps.length > 0) ? 'space-y-6' : ''}>
+                  {(conceptTags.length > 0 || topApps.length > 0) && (
                     <div className="px-5 md:px-8 xl:px-12 2xl:px-16">
                       <div className="rounded-2xl border border-[#ece7dd] bg-white/62 backdrop-blur-md px-5 py-4">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="mr-3 text-[9px] font-bold text-[#7f868d] uppercase tracking-[0.35em] opacity-90">Tags</span>
-                          {conceptTags.slice(0, 18).map((tag) => (
+                          {sortedTopApps.slice(0, 10).map((item) => (
+                            <button
+                              key={item.app}
+                              onClick={() => handleAppClick(item.app)}
+                              disabled={hasActiveFilter && !activeApps.includes(item.app) && !hasMatchForApp(item.app)}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all duration-500 ${
+                                activeApps.includes(item.app)
+                                  ? 'bg-[#9a3412] text-white border border-[#9a3412] shadow-[0_8px_20px_-14px_rgba(154,52,18,0.6)]'
+                                  : hasActiveFilter && !hasMatchForApp(item.app)
+                                    ? 'bg-[#fff4ea]/50 text-[#c9a98e] border border-[#f3dcc7]/60 opacity-60 cursor-not-allowed'
+                                    : 'bg-[#fff4ea] text-[#9a4d18] border border-[#efd4bb] hover:border-[#c2410c] hover:text-[#c2410c] hover:bg-[#ffeddc]'
+                              }`}
+                              title={`${item.count} captures`}
+                            >
+                              <span>{formatAppLabel(item.app)}</span>
+                              <span className={`text-[8px] font-semibold leading-none tracking-tight ${
+                                activeApps.includes(item.app)
+                                  ? 'text-white/85'
+                                  : 'text-[#9a4d18]/70'
+                              }`}>
+                                {item.count}
+                              </span>
+                            </button>
+                          ))}
+
+                          {sortedConceptTags.slice(0, 18).map((tag) => (
                             <button
                               key={tag}
                               onClick={() => handleTagClick(tag)}
-                              className={`px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all duration-500 ${
+                              disabled={hasActiveFilter && !activeTags.includes(tag) && !hasMatchForTag(tag)}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all duration-500 ${
                                 activeTags.includes(tag)
                                   ? 'bg-[#1a1c1d] text-white'
-                                  : 'bg-white/80 text-[#7f868d] border border-[#ece7dd] hover:border-[#1a1c1d] hover:text-[#1a1c1d]'
+                                  : hasActiveFilter && !hasMatchForTag(tag)
+                                    ? 'bg-white/60 text-[#c3c8cf] border border-[#ece7dd]/60 opacity-60 cursor-not-allowed'
+                                    : 'bg-white/80 text-[#7f868d] border border-[#ece7dd] hover:border-[#1a1c1d] hover:text-[#1a1c1d]'
                               }`}
                             >
-                              #{tag}
+                              <span>#{tag}</span>
+                              <span className={`text-[8px] font-semibold leading-none tracking-tight ${
+                                activeTags.includes(tag)
+                                  ? 'text-white/85'
+                                  : 'text-[#7f868d]/70'
+                              }`}>
+                                {tagCounts.get(tag) || 0}
+                              </span>
                             </button>
                           ))}
                         </div>

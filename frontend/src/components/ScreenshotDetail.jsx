@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getScreenshot, rescanScreenshot } from '../api'
+import { getScreenshot, rescanScreenshot, updateScreenshotTags } from '../api'
 
 function normalizeTags(rawTags) {
   if (Array.isArray(rawTags)) return rawTags
@@ -83,6 +83,10 @@ function buildAiDisplay(item) {
   }
 }
 
+function normalizeTagInput(value) {
+  return (value || '').trim().replace(/\s+/g, ' ')
+}
+
 function sameAiDisplay(a, b) {
   if (!a || !b) return false
   if (a.summary !== b.summary) return false
@@ -99,6 +103,10 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
   const [narrativeExpanded, setNarrativeExpanded] = useState(false)
   const [aiReveal, setAiReveal] = useState(false)
   const [aiContentFading, setAiContentFading] = useState(false)
+  const [tagEditLoading, setTagEditLoading] = useState(false)
+  const [tagComposerOpen, setTagComposerOpen] = useState(false)
+  const [tagDraft, setTagDraft] = useState('')
+  const tagInputRef = useRef(null)
   const prevStatusRef = useRef(liveScreenshot?.status)
   const tags = displayAi.tags
   const safeSummary = displayAi.summary
@@ -112,8 +120,15 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
     setNarrativeExpanded(false)
     setAiReveal(false)
     setAiContentFading(false)
+    setTagComposerOpen(false)
+    setTagDraft('')
     prevStatusRef.current = screenshot?.status
   }, [screenshot])
+
+  useEffect(() => {
+    if (!tagComposerOpen) return
+    tagInputRef.current?.focus()
+  }, [tagComposerOpen])
 
   useEffect(() => {
     if (isAiGenerating) return
@@ -178,6 +193,77 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
       setRescanError('Nao foi possivel atualizar a analise desta captura.')
     } finally {
       setRescanning(false)
+    }
+  }
+
+  const syncTags = async (nextTags) => {
+    setTagEditLoading(true)
+    setRescanError('')
+    try {
+      const res = await updateScreenshotTags(liveScreenshot.id, nextTags)
+      const updated = res.data.screenshot || null
+      if (updated) {
+        setLiveScreenshot(updated)
+        setDisplayAi((prev) => ({
+          ...prev,
+          tags: normalizeTags(updated.tags),
+        }))
+      } else {
+        setLiveScreenshot((prev) => ({
+          ...prev,
+          tags: nextTags,
+        }))
+        setDisplayAi((prev) => ({
+          ...prev,
+          tags: nextTags,
+        }))
+      }
+      await onRefresh()
+    } catch (e) {
+      console.error(e)
+      setRescanError('Nao foi possivel atualizar as tags desta captura.')
+    } finally {
+      setTagEditLoading(false)
+    }
+  }
+
+  const handleRemoveTag = (tagToRemove) => {
+    const nextTags = tags.filter((tag) => tag !== tagToRemove)
+    syncTags(nextTags)
+  }
+
+  const closeTagComposer = () => {
+    setTagComposerOpen(false)
+    setTagDraft('')
+  }
+
+  const handleOpenTagComposer = () => {
+    setRescanError('')
+    setTagComposerOpen(true)
+  }
+
+  const handleSubmitTag = async () => {
+    const nextTag = normalizeTagInput(tagDraft)
+    if (!nextTag) return
+    if (tags.includes(nextTag)) {
+      setRescanError('Essa tag ja existe nesta captura.')
+      return
+    }
+
+    await syncTags([...tags, nextTag])
+    closeTagComposer()
+  }
+
+  const handleTagComposerKeyDown = (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      handleSubmitTag()
+      return
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeTagComposer()
     }
   }
 
@@ -253,11 +339,74 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
                 {tags.map((tag) => (
                   <span
                     key={tag}
-                    className="px-3 py-1 bg-[#fcfaf7] border border-[#f1f2f6] text-[#636e72] text-[10px] font-bold rounded-full uppercase tracking-wider"
+                    className="group relative inline-flex items-center gap-1 px-3 py-1 bg-[#fcfaf7] border border-[#f1f2f6] text-[#636e72] text-[10px] font-bold rounded-full uppercase tracking-wider"
                   >
                     #{tag}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveTag(tag)}
+                      disabled={tagEditLoading}
+                      className="ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full text-[#7f868d] opacity-0 transition-opacity duration-200 group-hover:opacity-100 hover:bg-rose-100 hover:text-rose-600"
+                      aria-label={`Remove tag ${tag}`}
+                      title={`Remove ${tag}`}
+                    >
+                      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
                   </span>
                 ))}
+                {tagComposerOpen ? (
+                  <div className="inline-flex items-center gap-1 rounded-full border border-[#e7dccf] bg-[#fffaf4] px-2 py-1 shadow-sm">
+                    <span className="pl-1 text-[10px] font-bold uppercase tracking-wider text-[#b45309]">#</span>
+                    <input
+                      ref={tagInputRef}
+                      value={tagDraft}
+                      onChange={(event) => setTagDraft(event.target.value)}
+                      onKeyDown={handleTagComposerKeyDown}
+                      placeholder="nova tag"
+                      maxLength={40}
+                      disabled={tagEditLoading}
+                      className="w-28 bg-transparent text-[10px] font-bold uppercase tracking-wider text-[#2d3436] placeholder:text-[#d4a76f] outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSubmitTag}
+                      disabled={tagEditLoading || !normalizeTagInput(tagDraft)}
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-full text-[#b45309] transition-colors hover:bg-[#f7e8d4] disabled:cursor-not-allowed disabled:opacity-40"
+                      aria-label="Save tag"
+                      title="Save tag"
+                    >
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={closeTagComposer}
+                      disabled={tagEditLoading}
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-full text-[#7f868d] transition-colors hover:bg-[#f1f2f6] disabled:cursor-not-allowed disabled:opacity-40"
+                      aria-label="Cancel tag editing"
+                      title="Cancel"
+                    >
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleOpenTagComposer}
+                    disabled={tagEditLoading}
+                    className="inline-flex items-center gap-1 rounded-full border border-dashed border-[#d8d0c6] bg-[#fcfaf7] px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#7f868d] transition-all duration-200 hover:border-[#b45309] hover:text-[#b45309]"
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 5v14m-7-7h14" />
+                    </svg>
+                    Add Tag
+                  </button>
+                )}
               </div>
             </section>
 

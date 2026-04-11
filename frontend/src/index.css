@@ -110,6 +110,7 @@
 
   .custom-scrollbar::-webkit-scrollbar {
     width: 3px;
+    height: 3px;
   }
   .custom-scrollbar::-webkit-scrollbar-track {
     background: transparent;
@@ -120,6 +121,29 @@
   }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: #c9c7c3;
+  }
+
+  .thin-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #d8d4cf transparent;
+  }
+
+  .thin-scrollbar::-webkit-scrollbar {
+    width: 2px;
+    height: 2px;
+  }
+
+  .thin-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .thin-scrollbar::-webkit-scrollbar-thumb {
+    background: #d8d4cf;
+    border-radius: 999px;
+  }
+
+  .thin-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #c9c4bc;
   }
 }
 

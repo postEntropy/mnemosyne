@@ -10,6 +10,12 @@ class Settings(BaseSettings):
     ollama_model: str = "llava"
     openrouter_api_key: str = ""
     openrouter_model: str = "qwen/qwen3.6-plus:free"
+    ask_provider: str = "openrouter"
+    ask_openrouter_model: str = "qwen/qwen3.6-plus"
+    ask_default_mode: str = "balanced"
+    ask_quick_limit: int = 400
+    ask_balanced_limit: int = 2000
+    ask_deep_limit: int = 10000
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"
     gemini_requests_per_minute: int = 8

@@ -4,6 +4,12 @@ import { getSettings, updateSettings, testConnection } from '../api'
 export default function Settings({ onBack }) {
   const [settings, setSettings] = useState({
     ai_provider: 'ollama',
+    ask_provider: 'openrouter',
+    ask_openrouter_model: 'qwen/qwen3.6-plus',
+    ask_default_mode: 'balanced',
+    ask_quick_limit: '400',
+    ask_balanced_limit: '2000',
+    ask_deep_limit: '10000',
     ollama_base_url: 'http://localhost:11434',
     ollama_model: 'llava',
     openrouter_api_key: '',
@@ -17,6 +23,7 @@ export default function Settings({ onBack }) {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState(null)
+  const [aiConfigView, setAiConfigView] = useState('analysis')
 
   useEffect(() => {
     getSettings().then((res) => {
@@ -60,6 +67,7 @@ export default function Settings({ onBack }) {
 
   const visionModels = ['llava', 'bakllava', 'moondream', 'llama3.2-vision', 'minicpm-v', 'vision']
   const isVisionModel = visionModels.some((m) => settings.ollama_model?.toLowerCase().includes(m))
+  const askProviders = ['openrouter', 'ollama', 'gemini']
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-[#fcfaf7]">
@@ -118,43 +126,73 @@ export default function Settings({ onBack }) {
           </div>
         </section>
 
-        <section className="space-y-8">
-          <div className="space-y-2">
-            <h3 className="text-xl font-serif font-bold text-[#2d3436]">Oracle Selection</h3>
-            <p className="text-sm text-[#636e72]">Choose the intelligence that will interpret your memories.</p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {['ollama', 'openrouter', 'gemini'].map((provider) => (
-              <button
-                key={provider}
-                onClick={() => setSettings({ ...settings, ai_provider: provider })}
-                className={`p-8 rounded-3xl border-2 transition-all duration-300 text-left space-y-3 ${
-                  settings.ai_provider === provider
-                    ? 'border-[#2d3436] bg-white shadow-lg'
-                    : 'border-[#f1f2f6] bg-white/50 hover:border-[#dcdde1]'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                    <span className="text-lg font-bold capitalize text-[#2d3436]">{provider}</span>
-                    {settings.ai_provider === provider && (
-                        <div className="w-3 h-3 rounded-full bg-[#2d3436]" />
-                    )}
-                </div>
-                <p className="text-sm text-[#636e72] leading-relaxed italic font-serif">
-                  {provider === 'ollama' 
-                    ? 'Private and local. Your data never leaves this machine.' 
-                    : provider === 'openrouter'
-                      ? 'Cloud-powered excellence. Bring your own model.'
-                      : 'Google Gemini API with modest free tier limits.'}
-                </p>
-              </button>
-            ))}
-          </div>
-        </section>
-
         <section className="card p-10 space-y-10">
-          {settings.ai_provider === 'ollama' ? (
+          <div className="space-y-2">
+            <h3 className="text-xl font-serif font-bold text-[#2d3436]">AI Configuration</h3>
+            <p className="text-sm text-[#636e72]">Use one workspace and switch between Analysis AI and Ask Mnemosyne.</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 rounded-2xl border border-[#ece7dd] bg-white/70 p-2">
+            <button
+              type="button"
+              onClick={() => setAiConfigView('analysis')}
+              className={`rounded-xl py-3 text-[11px] font-bold uppercase tracking-[0.2em] transition-all duration-300 ${
+                aiConfigView === 'analysis'
+                  ? 'bg-[#1a1c1d] text-white shadow'
+                  : 'text-[#7f868d] hover:text-[#1a1c1d]'
+              }`}
+            >
+              Analysis AI
+            </button>
+            <button
+              type="button"
+              onClick={() => setAiConfigView('ask')}
+              className={`rounded-xl py-3 text-[11px] font-bold uppercase tracking-[0.2em] transition-all duration-300 ${
+                aiConfigView === 'ask'
+                  ? 'bg-[#1a1c1d] text-white shadow'
+                  : 'text-[#7f868d] hover:text-[#1a1c1d]'
+              }`}
+            >
+              Ask Mnemosyne
+            </button>
+          </div>
+
+          {aiConfigView === 'analysis' ? (
+            <>
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold text-[#b2bec3] uppercase tracking-[0.25em]">Provider</p>
+                <p className="text-sm text-[#636e72]">Choose which provider powers screenshot analysis.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {['ollama', 'openrouter', 'gemini'].map((provider) => (
+                  <button
+                    key={provider}
+                    onClick={() => setSettings({ ...settings, ai_provider: provider })}
+                    className={`min-h-[172px] p-8 rounded-3xl border-2 transition-all duration-300 text-left space-y-3 ${
+                      settings.ai_provider === provider
+                        ? 'border-[#2d3436] bg-white shadow-lg'
+                        : 'border-[#f1f2f6] bg-white/50 hover:border-[#dcdde1]'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-lg font-bold capitalize text-[#2d3436]">{provider}</span>
+                      {settings.ai_provider === provider && (
+                        <div className="w-3 h-3 rounded-full bg-[#2d3436]" />
+                      )}
+                    </div>
+                    <p className="text-sm text-[#636e72] leading-relaxed italic font-serif">
+                      {provider === 'ollama'
+                        ? 'Private and local. Your data never leaves this machine.'
+                        : provider === 'openrouter'
+                          ? 'Cloud-powered excellence. Bring your own model.'
+                          : 'Google Gemini API with modest free tier limits.'}
+                    </p>
+                  </button>
+                ))}
+              </div>
+
+              {settings.ai_provider === 'ollama' ? (
             <div className="space-y-8">
               {!isVisionModel && (
                 <div className="bg-amber-50 border border-amber-300 rounded-2xl p-6 space-y-2">
@@ -250,35 +288,146 @@ export default function Settings({ onBack }) {
                 Free tier has stricter request limits. The backend applies a per-minute guard for Gemini calls.
               </p>
             </div>
-          )}
+              )}
 
-          <div className="pt-8 border-t border-[#f1f2f6] flex items-center justify-between">
-            <button
-              onClick={handleTest}
-              disabled={testing}
-              className="btn-secondary px-8"
-            >
-              {testing ? 'Testing Connection...' : 'Test Connection'}
-            </button>
-            
-            {testResult && (
-              <div
-                className={`max-w-[60%] rounded-2xl border px-4 py-3 shadow-sm transition-all duration-300 ${
-                  testResult.success
-                    ? 'bg-emerald-50/70 border-emerald-200 text-emerald-700'
-                    : 'bg-rose-50/70 border-rose-200 text-rose-700'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`w-2.5 h-2.5 rounded-full ${testResult.success ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                  <p className="text-[10px] font-bold uppercase tracking-[0.2em]">
-                    {settings.ai_provider === 'openrouter' ? 'OpenRouter' : settings.ai_provider === 'gemini' ? 'Gemini' : 'Ollama'} Test
-                  </p>
-                </div>
-                <p className="mt-2 text-sm leading-relaxed break-words">{testResult.message}</p>
+              <div className="pt-8 border-t border-[#f1f2f6] flex items-center justify-between">
+                <button
+                  onClick={handleTest}
+                  disabled={testing}
+                  className="btn-secondary px-8"
+                >
+                  {testing ? 'Testing Connection...' : 'Test Connection'}
+                </button>
+
+                {testResult && (
+                  <div
+                    className={`max-w-[60%] rounded-2xl border px-4 py-3 shadow-sm transition-all duration-300 ${
+                      testResult.success
+                        ? 'bg-emerald-50/70 border-emerald-200 text-emerald-700'
+                        : 'bg-rose-50/70 border-rose-200 text-rose-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-2.5 h-2.5 rounded-full ${testResult.success ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                      <p className="text-[10px] font-bold uppercase tracking-[0.2em]">
+                        {settings.ai_provider === 'openrouter' ? 'OpenRouter' : settings.ai_provider === 'gemini' ? 'Gemini' : 'Ollama'} Test
+                      </p>
+                    </div>
+                    <p className="mt-2 text-sm leading-relaxed break-words">{testResult.message}</p>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold text-[#b2bec3] uppercase tracking-[0.25em]">Provider</p>
+                <p className="text-sm text-[#636e72]">Select the Ask runtime provider and context strategy.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {askProviders.map((provider) => {
+                  const isSelected = settings.ask_provider === provider
+                  const isEnabled = provider === 'openrouter'
+                  return (
+                    <button
+                      key={provider}
+                      type="button"
+                      onClick={() => isEnabled && setSettings({ ...settings, ask_provider: provider })}
+                      disabled={!isEnabled}
+                      className={`min-h-[172px] p-8 rounded-3xl border-2 transition-all duration-300 text-left space-y-3 ${
+                        isSelected
+                          ? 'border-[#2d3436] bg-white shadow-md'
+                          : isEnabled
+                            ? 'border-[#f1f2f6] bg-white/60 hover:border-[#dcdde1]'
+                            : 'border-[#f1f2f6] bg-[#f7f7f7] text-[#a3abb2] cursor-not-allowed opacity-70'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-lg font-bold capitalize text-[#2d3436]">{provider}</span>
+                        {isSelected && <div className="w-3 h-3 rounded-full bg-[#2d3436]" />}
+                      </div>
+                      <p className="text-sm text-[#636e72] leading-relaxed italic font-serif">
+                        {provider === 'openrouter'
+                          ? 'Primary Ask runtime with large context support.'
+                          : 'Reserved for future Ask fallback.'}
+                      </p>
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Ask Model (OpenRouter)</label>
+                <input
+                  type="text"
+                  value={settings.ask_openrouter_model}
+                  onChange={(e) => setSettings({ ...settings, ask_openrouter_model: e.target.value })}
+                  className="w-full bg-[#fcfaf7] border border-[#f1f2f6] rounded-2xl px-6 py-4 text-sm focus:outline-none focus:border-[#dcdde1] transition shadow-inner"
+                  placeholder="qwen/qwen3.6-plus"
+                />
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Default Ask Mode</label>
+                <div className="grid grid-cols-3 gap-3">
+                  {['quick', 'balanced', 'deep'].map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => setSettings({ ...settings, ask_default_mode: mode })}
+                      className={`py-3 px-4 rounded-2xl border-2 transition-all duration-300 text-xs font-bold uppercase tracking-[0.15em] ${
+                        settings.ask_default_mode === mode
+                          ? 'border-[#2d3436] bg-white shadow-md text-[#2d3436]'
+                          : 'border-[#f1f2f6] bg-white/50 hover:border-[#dcdde1] text-[#636e72]'
+                      }`}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Quick Limit</label>
+                  <input
+                    type="number"
+                    min="50"
+                    step="50"
+                    value={settings.ask_quick_limit}
+                    onChange={(e) => setSettings({ ...settings, ask_quick_limit: e.target.value })}
+                    className="w-full bg-[#fcfaf7] border border-[#f1f2f6] rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-[#dcdde1] transition shadow-inner"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Balanced Limit</label>
+                  <input
+                    type="number"
+                    min="100"
+                    step="100"
+                    value={settings.ask_balanced_limit}
+                    onChange={(e) => setSettings({ ...settings, ask_balanced_limit: e.target.value })}
+                    className="w-full bg-[#fcfaf7] border border-[#f1f2f6] rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-[#dcdde1] transition shadow-inner"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Deep Limit</label>
+                  <input
+                    type="number"
+                    min="100"
+                    step="100"
+                    value={settings.ask_deep_limit}
+                    onChange={(e) => setSettings({ ...settings, ask_deep_limit: e.target.value })}
+                    className="w-full bg-[#fcfaf7] border border-[#f1f2f6] rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-[#dcdde1] transition shadow-inner"
+                  />
+                </div>
+              </div>
+
+              <p className="text-xs text-[#8a9499] leading-relaxed px-1">
+                These limits control how many processed screenshots are considered before Ask Mnemosyne synthesizes an answer.
+              </p>
+            </>
+          )}
         </section>
 
         <footer className="text-center pt-10">
