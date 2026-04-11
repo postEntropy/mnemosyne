@@ -1,10 +1,46 @@
-import { useEffect, useRef, useState } from 'react'
-import { getScreenshot, rescanScreenshot, updateScreenshotTags } from '../api'
-import { buildAiDisplay, sameAiDisplay, normalizeTagInput, normalizeTags } from '../utils/shared'
+import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
+import { getScreenshot, rescanScreenshot, updateScreenshotTags } from '../api.ts'
+import { buildAiDisplay, sameAiDisplay, normalizeTagInput, normalizeTags } from '../utils/shared.ts'
+import type { Screenshot, AiDisplay } from '../types/index.ts'
 
-export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDelete }) {
+interface Props {
+  screenshot: Screenshot
+  onClose: () => void
+  onRefresh: () => void
+  onDelete?: (id: number) => void
+}
+
+function getStatusColor(status: string): string {
+  switch (status) {
+    case 'processed': return 'text-green-600'
+    case 'pending': return 'text-amber-500'
+    case 'processing': return 'text-[#5e6472]'
+    case 'error': return 'text-rose-500'
+    default: return 'text-gray-400'
+  }
+}
+
+interface DetailRowProps {
+  label: string
+  value: string
+  color?: string
+  isPath?: boolean
+}
+
+function DetailRow({ label, value, color = 'text-[#2d3436]', isPath = false }: DetailRowProps) {
+  return (
+    <div className="flex flex-col space-y-1 min-w-0">
+      <span className="text-[10px] font-bold text-[#dfe6e9] uppercase tracking-wider">{label}</span>
+      <span className={`text-[11px] font-medium ${color} ${isPath ? 'font-mono truncate' : 'font-sans truncate'}`} title={value}>
+        {value}
+      </span>
+    </div>
+  )
+}
+
+export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDelete }: Props) {
   const [liveScreenshot, setLiveScreenshot] = useState(screenshot)
-  const [displayAi, setDisplayAi] = useState(() => buildAiDisplay(screenshot))
+  const [displayAi, setDisplayAi] = useState<AiDisplay>(() => buildAiDisplay(screenshot))
   const [rescanning, setRescanning] = useState(false)
   const [rescanError, setRescanError] = useState('')
   const [narrativeExpanded, setNarrativeExpanded] = useState(false)
@@ -13,7 +49,7 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
   const [tagEditLoading, setTagEditLoading] = useState(false)
   const [tagComposerOpen, setTagComposerOpen] = useState(false)
   const [tagDraft, setTagDraft] = useState('')
-  const tagInputRef = useRef(null)
+  const tagInputRef = useRef<HTMLInputElement>(null)
   const prevStatusRef = useRef(liveScreenshot?.status)
   const tags = displayAi.tags
   const safeSummary = displayAi.summary
@@ -76,8 +112,8 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
       try {
         const res = await getScreenshot(liveScreenshot.id)
         setLiveScreenshot(res.data)
-      } catch (e) {
-        console.error(e)
+      } catch {
+        // Error handled silently
       }
     }, 2000)
 
@@ -95,15 +131,14 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
         error_message: null,
       }))
       await onRefresh()
-    } catch (e) {
-      console.error(e)
+    } catch {
       setRescanError('Nao foi possivel atualizar a analise desta captura.')
     } finally {
       setRescanning(false)
     }
   }
 
-  const syncTags = async (nextTags) => {
+  const syncTags = async (nextTags: string[]) => {
     setTagEditLoading(true)
     setRescanError('')
     try {
@@ -126,15 +161,14 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
         }))
       }
       await onRefresh()
-    } catch (e) {
-      console.error(e)
+    } catch {
       setRescanError('Nao foi possivel atualizar as tags desta captura.')
     } finally {
       setTagEditLoading(false)
     }
   }
 
-  const handleRemoveTag = (tagToRemove) => {
+  const handleRemoveTag = (tagToRemove: string) => {
     const nextTags = tags.filter((tag) => tag !== tagToRemove)
     syncTags(nextTags)
   }
@@ -161,7 +195,7 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
     closeTagComposer()
   }
 
-  const handleTagComposerKeyDown = (event) => {
+  const handleTagComposerKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Enter') {
       event.preventDefault()
       handleSubmitTag()
@@ -183,7 +217,7 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
     day: 'numeric',
     year: 'numeric',
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
   })
 
   return (
@@ -218,7 +252,6 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
       </header>
 
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
-        {/* Image Side */}
         <div className="flex-grow min-h-0 bg-[#f8f9fa] p-5 lg:p-8 flex items-center justify-center overflow-hidden">
           <div className="relative group max-w-full">
             <img
@@ -232,7 +265,6 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
           </div>
         </div>
 
-        {/* Info Side */}
         <div className="w-full lg:w-[420px] border-l border-[#f1f2f6] flex flex-col h-full min-h-0 glass-strong overflow-hidden">
           <div className="p-6 lg:p-7 space-y-6 overflow-hidden">
             <section className={`space-y-4 ${aiReveal ? 'ai-refresh-reveal' : ''}`}>
@@ -241,7 +273,7 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
                 <h2 className={`text-[1.15rem] font-reading-serif text-[#2d3436] font-semibold leading-snug tracking-tight line-clamp-2 transition-all duration-500 ${isAiGenerating ? 'blur-[1px] opacity-65' : ''}`}>{safeSummary}</h2>
                 <p className="text-xs text-[#636e72] font-medium">{formattedDate}</p>
               </div>
-              
+
               <div className={`flex flex-wrap gap-2 pt-2 transition-all duration-500 ${isAiGenerating ? 'blur-[1px] opacity-65' : ''} ${aiContentFading ? 'opacity-0 translate-y-1' : 'opacity-100 translate-y-0'}`}>
                 {tags.map((tag) => (
                   <span
@@ -269,7 +301,7 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
                     <input
                       ref={tagInputRef}
                       value={tagDraft}
-                      onChange={(event) => setTagDraft(event.target.value)}
+                      onChange={(event: ChangeEvent<HTMLInputElement>) => setTagDraft(event.target.value)}
                       onKeyDown={handleTagComposerKeyDown}
                       placeholder="nova tag"
                       maxLength={40}
@@ -360,25 +392,4 @@ export default function ScreenshotDetail({ screenshot, onClose, onRefresh, onDel
       </div>
     </div>
   )
-}
-
-function DetailRow({ label, value, color = 'text-[#2d3436]', isPath = false }) {
-  return (
-    <div className="flex flex-col space-y-1 min-w-0">
-      <span className="text-[10px] font-bold text-[#dfe6e9] uppercase tracking-wider">{label}</span>
-      <span className={`text-[11px] font-medium ${color} ${isPath ? 'font-mono truncate' : 'font-sans truncate'}`} title={value}>
-        {value}
-      </span>
-    </div>
-  )
-}
-
-function getStatusColor(status) {
-  switch (status) {
-    case 'processed': return 'text-green-600'
-    case 'pending': return 'text-amber-500'
-    case 'processing': return 'text-[#5e6472]'
-    case 'error': return 'text-rose-500'
-    default: return 'text-gray-400'
-  }
 }

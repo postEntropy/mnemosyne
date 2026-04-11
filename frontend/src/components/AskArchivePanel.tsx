@@ -1,24 +1,14 @@
 import { useState, useEffect } from 'react'
+import type { FormEvent, KeyboardEvent, ChangeEvent } from 'react'
+import type { Screenshot, AskSuggestion, AskEntry } from '../types/index.ts'
 
-const FALLBACK_SUGGESTIONS = [
-  {
-    title: 'Recent activity recap',
-    prompt: 'What have I been working on recently?',
-    kind: 'timeline',
-  },
-  {
-    title: 'Most used apps',
-    prompt: 'Which apps did I use the most in the last few days?',
-    kind: 'application',
-  },
-  {
-    title: 'Recurring themes',
-    prompt: 'Which themes appear most often in my archive?',
-    kind: 'tag',
-  },
+const FALLBACK_SUGGESTIONS: AskSuggestion[] = [
+  { title: 'Recent activity recap', prompt: 'What have I been working on recently?', kind: 'timeline' },
+  { title: 'Most used apps', prompt: 'Which apps did I use the most in the last few days?', kind: 'application' },
+  { title: 'Recurring themes', prompt: 'Which themes appear most often in my archive?', kind: 'tag' },
 ]
 
-function suggestionIcon(kind) {
+function suggestionIcon(kind: string): React.ReactNode {
   if (kind === 'application') {
     return (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -26,7 +16,6 @@ function suggestionIcon(kind) {
       </svg>
     )
   }
-
   if (kind === 'tag') {
     return (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -34,7 +23,6 @@ function suggestionIcon(kind) {
       </svg>
     )
   }
-
   return (
     <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
@@ -42,7 +30,30 @@ function suggestionIcon(kind) {
   )
 }
 
-export default function AskArchivePanel({ 
+interface Props {
+  onAsk: (question: string) => void
+  loading: boolean
+  answer: string
+  matches: Screenshot[]
+  onOpenMatch: (screenshot: Screenshot) => void
+  _provider?: string
+  suggestions?: AskSuggestion[]
+  contextItems?: number
+  retrievedItems?: number
+  dbTokenEstimate?: number
+  dbTokenUpdatedAt?: string
+  dbTokenizerName?: string
+  historyEntries?: AskEntry[]
+  activeHistoryId?: number | null
+  initialQuestion?: string
+  onSelectHistory?: (id: number) => void
+  dateFrom?: string
+  setDateFrom?: (v: string) => void
+  dateTo?: string
+  setDateTo?: (v: string) => void
+}
+
+export default function AskArchivePanel({
   onAsk,
   loading,
   answer,
@@ -59,10 +70,11 @@ export default function AskArchivePanel({
   activeHistoryId = null,
   initialQuestion = '',
   onSelectHistory,
-}) {
+}: Props) {
   const [question, setQuestion] = useState('')
   const [showResults, setShowResults] = useState(false)
   const [showHistoryMenu, setShowHistoryMenu] = useState(false)
+
   useEffect(() => {
     setQuestion(initialQuestion || '')
   }, [initialQuestion])
@@ -73,13 +85,13 @@ export default function AskArchivePanel({
     }
   }, [answer, matches])
 
-  const submit = (e) => {
+  const submit = (e: FormEvent) => {
     e.preventDefault()
     if (!question.trim() || loading) return
     onAsk(question.trim())
   }
 
-  const handleSuggestion = (prompt) => {
+  const handleSuggestion = (prompt: string) => {
     setQuestion(prompt)
     onAsk(prompt)
   }
@@ -175,7 +187,7 @@ export default function AskArchivePanel({
               <input
                 type="text"
                 value={question}
-                onChange={(e) => setQuestion(e.target.value)}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setQuestion(e.target.value)}
                 placeholder="Ask based on screenshots..."
                 className="flex-grow bg-transparent border-none outline-none ring-0 focus:outline-none focus-visible:outline-none focus:ring-0 text-[#1a1c1d] placeholder-[#94999e] py-2.5 text-sm font-reading-serif"
               />
@@ -235,34 +247,33 @@ export default function AskArchivePanel({
                 <p className="text-[10px] font-bold tracking-[0.25em] uppercase text-[#94999e] mb-3">Evidence</p>
                 <div className="overflow-x-auto thin-scrollbar pb-2">
                   <div className="flex gap-3 min-w-max">
-                  {matches.map((m) => (
-                    <button
-                      key={m.id}
-                      onClick={() => onOpenMatch(m)}
-                      className="group w-52 shrink-0 text-left rounded-xl border border-[#ece7dd] bg-white p-2 transition-all duration-300 hover:border-[#d9d0c3]"
-                    >
-                      <div className="relative h-24 rounded-lg overflow-hidden border border-[#f0ede9] mb-2 bg-[#f8f7f5]">
-                        {m.thumbnail_path ? (
-                          <img
-                            src={`/thumbnails/${m.thumbnail_path.split('/').pop()}`}
-                            alt={`Thumbnail for ${m.summary || m.filename}`}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-[#94a3b8] text-xs">No thumbnail</div>
-                        )}
-                      </div>
-                      <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#b45309]">#{m.id}</p>
-                      <p className="mt-1 text-[12px] leading-snug text-[#1a1c1d] font-reading-serif line-clamp-2">{m.summary || m.filename}</p>
-                    </button>
-                  ))}
+                    {matches.map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => onOpenMatch(m)}
+                        className="group w-52 shrink-0 text-left rounded-xl border border-[#ece7dd] bg-white p-2 transition-all duration-300 hover:border-[#d9d0c3]"
+                      >
+                        <div className="relative h-24 rounded-lg overflow-hidden border border-[#f0ede9] mb-2 bg-[#f8f7f5]">
+                          {m.thumbnail_path ? (
+                            <img
+                              src={`/thumbnails/${m.thumbnail_path.split('/').pop()}`}
+                              alt={`Thumbnail for ${m.summary || m.filename}`}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-[#94a3b8] text-xs">No thumbnail</div>
+                          )}
+                        </div>
+                        <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#b45309]">#{m.id}</p>
+                        <p className="mt-1 text-[12px] leading-snug text-[#1a1c1d] font-reading-serif line-clamp-2">{m.summary || m.filename}</p>
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
             )}
           </div>
         )}
-
       </div>
     </div>
   )

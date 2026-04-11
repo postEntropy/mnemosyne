@@ -1,9 +1,24 @@
 import { useState, useEffect } from 'react'
-import { scanFolder, getScanProgress, ignoreOnboardingPending } from '../api'
+import { scanFolder, getScanProgress, ignoreOnboardingPending } from '../api.ts'
+import type { OnboardingInfo, ScanProgress } from '../types/index.ts'
 
-export default function OnboardingModal({ data, onClose, onScanComplete, onStartBackgroundScan, onDismissed }) {
+interface OnboardingModalProps {
+  data: OnboardingInfo | null
+  onClose: () => void
+  onScanComplete: () => void
+  onStartBackgroundScan?: () => void
+  onDismissed?: () => void
+}
+
+export default function OnboardingModal({
+  data,
+  onClose,
+  onScanComplete,
+  onStartBackgroundScan,
+  onDismissed,
+}: OnboardingModalProps) {
   const [scanning, setScanning] = useState(false)
-  const [progress, setProgress] = useState(null)
+  const [progress, setProgress] = useState<ScanProgress | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
 
   useEffect(() => {
@@ -17,8 +32,8 @@ export default function OnboardingModal({ data, onClose, onScanComplete, onStart
   const handleStartScan = async () => {
     setScanning(true)
     setErrorMessage('')
-    if (onStartBackgroundScan) onStartBackgroundScan();
-    
+    if (onStartBackgroundScan) onStartBackgroundScan()
+
     setProgress({ queued: 0, total: data.unregistered, done: 0, current_file: null })
     try {
       const batchSize = 50
@@ -28,15 +43,15 @@ export default function OnboardingModal({ data, onClose, onScanComplete, onStart
       while (hasMore) {
         const res = await scanFolder(batchSize, batchIndex)
         const d = res.data
-        setProgress(prev => ({
-          ...prev,
-          queued: prev.queued + d.queued,
-          total: d.total_new || prev.total,
+        setProgress((prev) => ({
+          ...prev!,
+          queued: prev!.queued + d.queued,
+          total: d.total_new || prev!.total,
         }))
         hasMore = d.has_more
         batchIndex++
         if (hasMore) {
-          await new Promise(r => setTimeout(r, 500))
+          await new Promise((r) => setTimeout(r, 500))
         }
       }
 
@@ -51,11 +66,11 @@ export default function OnboardingModal({ data, onClose, onScanComplete, onStart
           const total = Math.max(0, p.data.total || 0)
           const done = Math.max(0, Math.min(total, (p.data.processed || 0) + (p.data.errors || 0)))
 
-          setProgress(prev => ({
-            ...prev,
+          setProgress((prev) => ({
+            ...prev!,
             done,
             total,
-            current_file: p.data.current_file
+            current_file: p.data.current_file,
           }))
 
           if ((p.data.pending || 0) === 0 && !p.data.current_file) {
@@ -108,7 +123,7 @@ export default function OnboardingModal({ data, onClose, onScanComplete, onStart
       <div className="bg-white border border-[#f1f2f6] rounded-[2rem] p-12 max-w-xl w-full mx-4 shadow-2xl relative overflow-hidden text-center">
         {/* Decorative element */}
         <div className="absolute -top-24 -right-24 w-48 h-48 bg-[#fcfaf7] rounded-full blur-3xl opacity-50" />
-        
+
         <div className="relative z-10">
           <div className="mx-auto w-24 h-24 bg-[#fcfaf7] border border-[#f1f2f6] rounded-full flex items-center justify-center mb-10 shadow-inner">
             <svg className="w-10 h-10 text-[#2d3436]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}>

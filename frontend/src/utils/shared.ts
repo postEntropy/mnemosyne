@@ -1,38 +1,37 @@
+import type { Screenshot, AiDisplay } from '../types/index.ts'
+
 /**
  * Parse a JSON string that may contain surrounding text.
- * Handles: pure JSON, JSON with leading/trailing text, malformed wrappers.
  */
-export function parseJsonObjectFromText(text) {
+export function parseJsonObjectFromText(text: string): Record<string, unknown> | null {
   if (typeof text !== 'string') return null
   const trimmed = text.trim()
   if (!trimmed) return null
 
-  // Try direct parse if it starts with '{'
   if (trimmed.startsWith('{')) {
     try {
-      return JSON.parse(trimmed)
+      return JSON.parse(trimmed) as Record<string, unknown>
     } catch {
-      // Fall through to extraction.
+      // Fall through.
     }
   }
 
-  // Extract between first '{' and last '}'
   const start = trimmed.indexOf('{')
   const end = trimmed.lastIndexOf('}')
   if (start === -1 || end === -1 || end <= start) return null
 
   try {
-    return JSON.parse(trimmed.slice(start, end + 1))
+    return JSON.parse(trimmed.slice(start, end + 1)) as Record<string, unknown>
   } catch {
     return null
   }
 }
 
 /**
- * Normalize tags from various formats (array, JSON string, plain string) into a string array.
+ * Normalize tags from various formats into a string array.
  */
-export function normalizeTags(rawTags) {
-  if (Array.isArray(rawTags)) return rawTags
+export function normalizeTags(rawTags: unknown): string[] {
+  if (Array.isArray(rawTags)) return rawTags as string[]
   if (typeof rawTags !== 'string') return []
 
   try {
@@ -45,9 +44,8 @@ export function normalizeTags(rawTags) {
 
 /**
  * Extract a human-readable summary from a screenshot object.
- * Tries summary JSON, description JSON, then raw text, then filename.
  */
-export function sanitizeSummary(screenshot) {
+export function sanitizeSummary(screenshot: Screenshot): string {
   const rawSummary = (screenshot.summary || '').trim()
   const parsedSummary = parseJsonObjectFromText(rawSummary)
   if (parsedSummary && typeof parsedSummary.summary === 'string' && parsedSummary.summary.trim()) {
@@ -75,7 +73,7 @@ export function sanitizeSummary(screenshot) {
 /**
  * Extract a human-readable description from a screenshot object.
  */
-export function sanitizeDescription(screenshot) {
+export function sanitizeDescription(screenshot: Screenshot): string {
   const rawDescription = (screenshot.description || '').trim()
   const parsedDescription = parseJsonObjectFromText(rawDescription)
   if (parsedDescription && typeof parsedDescription.description === 'string' && parsedDescription.description.trim()) {
@@ -100,7 +98,7 @@ export function sanitizeDescription(screenshot) {
 /**
  * Format a timestamp into a human-readable capture date/time.
  */
-export function formatCaptureDateTime(timestamp, includeYear = false) {
+export function formatCaptureDateTime(timestamp: string, includeYear = false): string {
   const date = new Date(timestamp)
   if (Number.isNaN(date.getTime())) return 'Unknown time'
 
@@ -122,7 +120,7 @@ export function formatCaptureDateTime(timestamp, includeYear = false) {
 /**
  * Build a normalized AI display object from a screenshot.
  */
-export function buildAiDisplay(item) {
+export function buildAiDisplay(item: Screenshot): AiDisplay {
   return {
     summary: sanitizeSummary(item),
     description: sanitizeDescription(item),
@@ -133,36 +131,36 @@ export function buildAiDisplay(item) {
 /**
  * Deep equality check for AI display objects.
  */
-export function sameAiDisplay(a, b) {
+export function sameAiDisplay(a: AiDisplay | null, b: AiDisplay | null): boolean {
   if (!a || !b) return false
   if (a.summary !== b.summary) return false
   if (a.description !== b.description) return false
   if ((a.tags || []).length !== (b.tags || []).length) return false
-  return (a.tags || []).every((tag, idx) => tag === b.tags[idx])
+  return (a.tags || []).every((tag, idx) => tag === (b.tags || [])[idx])
 }
 
 /**
  * Normalize tag input: trim and collapse whitespace.
  */
-export function normalizeTagInput(value) {
+export function normalizeTagInput(value: string): string {
   return (value || '').trim().replace(/\s+/g, ' ')
 }
 
 /**
  * Generate a thumbnail URL from a screenshot's thumbnail_path.
  */
-export function getThumbnailUrl(thumbnailPath) {
+export function getThumbnailUrl(thumbnailPath: string | null): string | null {
   if (!thumbnailPath) return null
   const fileName = thumbnailPath.split('/').pop()
   return `/thumbnails/${fileName}`
 }
 
 /**
- * Format an app label for display (handles unknown/missing app names).
+ * Format an app label for display.
  */
-export function formatAppLabel(app) {
+export function formatAppLabel(app: string): string {
   const normalized = String(app || '').trim().toLowerCase()
-  if (['unknown', 'unknown app', 'app not detected', 'capture'].includes(normalized)) {
+  if (!normalized || ['unknown', 'unknown app', 'app not detected', 'capture'].includes(normalized)) {
     return 'Unknown app'
   }
   return app

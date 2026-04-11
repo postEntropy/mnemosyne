@@ -1,13 +1,27 @@
-export default function Stats({ stats, isCompact = false }) {
+import type { Stats } from '../types/index.ts'
+
+interface StatsProps {
+  stats: Stats | null
+  isCompact?: boolean
+}
+
+interface StatItem {
+  label: string
+  value: number
+  color: string
+  icon: string
+}
+
+export default function Stats({ stats, isCompact = false }: StatsProps) {
   if (!stats) return (
     <div className="px-4 space-y-3 animate-pulse">
       {[1, 2, 3, 4].map((i) => (
-        <div key={i} className="h-12 bg-white rounded-xl border border-[#f1f2f6]"></div>
+        <div key={i} className="h-12 bg-white rounded-xl border border-[#f1f2f6]" />
       ))}
     </div>
   )
 
-  const items = [
+  const items: StatItem[] = [
     { label: 'Total', value: stats.total || 0, color: 'text-[#2d3436]', icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10' },
     { label: 'Processed', value: stats.processed || 0, color: 'text-green-600', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
     { label: 'Queue', value: (stats.processing || 0) + (stats.pending || 0), color: 'text-amber-500', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },

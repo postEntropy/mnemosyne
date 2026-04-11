@@ -1,8 +1,28 @@
-import { useState, useEffect } from 'react'
-import { getSettings, updateSettings, testConnection } from '../api'
+import { useState, useEffect, type ChangeEvent } from 'react'
+import { getSettings, updateSettings, testConnection } from '../api.ts'
+import type { Settings as SettingsType } from '../types/index.ts'
 
-export default function Settings({ onBack }) {
-  const [settings, setSettings] = useState({
+interface SettingsProps {
+  onBack: () => void
+}
+
+interface TestResult {
+  success: boolean
+  message: string
+}
+
+interface ScaleOption {
+  label: string
+  value: string
+}
+
+type AiProvider = 'ollama' | 'openrouter' | 'gemini'
+type AskProvider = 'openrouter' | 'ollama' | 'gemini'
+type AiConfigView = 'analysis' | 'ask'
+type AskMode = 'quick' | 'balanced' | 'deep'
+
+export default function Settings({ onBack }: SettingsProps) {
+  const [settings, setSettings] = useState<SettingsType>({
     ai_provider: 'ollama',
     ask_provider: 'openrouter',
     ask_openrouter_model: 'qwen/qwen3.6-plus',
@@ -22,8 +42,8 @@ export default function Settings({ onBack }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState(null)
-  const [aiConfigView, setAiConfigView] = useState('analysis')
+  const [testResult, setTestResult] = useState<TestResult | null>(null)
+  const [aiConfigView, setAiConfigView] = useState<AiConfigView>('analysis')
 
   useEffect(() => {
     getSettings().then((res) => {
@@ -58,7 +78,7 @@ export default function Settings({ onBack }) {
     }
   }
 
-  const scaleOptions = [
+  const scaleOptions: ScaleOption[] = [
     { label: 'Small', value: '0.85' },
     { label: 'Standard', value: '1.0' },
     { label: 'Large', value: '1.15' },
@@ -67,7 +87,11 @@ export default function Settings({ onBack }) {
 
   const visionModels = ['llava', 'bakllava', 'moondream', 'llama3.2-vision', 'minicpm-v', 'vision']
   const isVisionModel = visionModels.some((m) => settings.ollama_model?.toLowerCase().includes(m))
-  const askProviders = ['openrouter', 'ollama', 'gemini']
+  const askProviders: AskProvider[] = ['openrouter', 'ollama', 'gemini']
+
+  const updateSetting = <K extends keyof SettingsType>(key: K, value: SettingsType[K]) => {
+    setSettings((prev) => ({ ...prev, [key]: value }))
+  }
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-[#fcfaf7]">
@@ -110,7 +134,7 @@ export default function Settings({ onBack }) {
             {scaleOptions.map((opt) => (
               <button
                 key={opt.value}
-                onClick={() => setSettings({ ...settings, ui_scale: opt.value })}
+                onClick={() => updateSetting('ui_scale', opt.value)}
                 className={`py-4 px-2 rounded-2xl border-2 transition-all duration-300 ${
                   settings.ui_scale === opt.value
                     ? 'border-[#2d3436] bg-white shadow-md font-bold'
@@ -165,10 +189,10 @@ export default function Settings({ onBack }) {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {['ollama', 'openrouter', 'gemini'].map((provider) => (
+                {(['ollama', 'openrouter', 'gemini'] as AiProvider[]).map((provider) => (
                   <button
                     key={provider}
-                    onClick={() => setSettings({ ...settings, ai_provider: provider })}
+                    onClick={() => updateSetting('ai_provider', provider)}
                     className={`min-h-[172px] p-8 rounded-3xl border-2 transition-all duration-300 text-left space-y-3 ${
                       settings.ai_provider === provider
                         ? 'border-[#2d3436] bg-white shadow-lg'
@@ -212,7 +236,7 @@ export default function Settings({ onBack }) {
                   id="ollama-base-url"
                   type="text"
                   value={settings.ollama_base_url}
-                  onChange={(e) => setSettings({ ...settings, ollama_base_url: e.target.value })}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => updateSetting('ollama_base_url', e.target.value)}
                   className="w-full bg-[#fcfaf7] border border-[#f1f2f6] rounded-2xl px-6 py-4 text-sm focus:outline-none focus:border-[#dcdde1] transition shadow-inner"
                   placeholder="http://localhost:11434"
                 />
@@ -223,7 +247,7 @@ export default function Settings({ onBack }) {
                   id="ollama-model"
                   type="text"
                   value={settings.ollama_model}
-                  onChange={(e) => setSettings({ ...settings, ollama_model: e.target.value })}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => updateSetting('ollama_model', e.target.value)}
                   className="w-full bg-[#fcfaf7] border border-[#f1f2f6] rounded-2xl px-6 py-4 text-sm focus:outline-none focus:border-[#dcdde1] transition shadow-inner"
                   placeholder="llava"
                 />
@@ -237,7 +261,7 @@ export default function Settings({ onBack }) {
                   id="openrouter-api-key"
                   type="password"
                   value={settings.openrouter_api_key}
-                  onChange={(e) => setSettings({ ...settings, openrouter_api_key: e.target.value })}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => updateSetting('openrouter_api_key', e.target.value)}
                   className="w-full bg-[#fcfaf7] border border-[#f1f2f6] rounded-2xl px-6 py-4 text-sm focus:outline-none focus:border-[#dcdde1] transition shadow-inner"
                   placeholder="sk-or-v1-..."
                 />
@@ -248,7 +272,7 @@ export default function Settings({ onBack }) {
                   id="openrouter-model"
                   type="text"
                   value={settings.openrouter_model}
-                  onChange={(e) => setSettings({ ...settings, openrouter_model: e.target.value })}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => updateSetting('openrouter_model', e.target.value)}
                   className="w-full bg-[#fcfaf7] border border-[#f1f2f6] rounded-2xl px-6 py-4 text-sm focus:outline-none focus:border-[#dcdde1] transition shadow-inner"
                   placeholder="openai/gpt-4o"
                 />
@@ -262,7 +286,7 @@ export default function Settings({ onBack }) {
                   id="gemini-api-key"
                   type="password"
                   value={settings.gemini_api_key}
-                  onChange={(e) => setSettings({ ...settings, gemini_api_key: e.target.value })}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => updateSetting('gemini_api_key', e.target.value)}
                   className="w-full bg-[#fcfaf7] border border-[#f1f2f6] rounded-2xl px-6 py-4 text-sm focus:outline-none focus:border-[#dcdde1] transition shadow-inner"
                   placeholder="AIza..."
                 />
@@ -273,7 +297,7 @@ export default function Settings({ onBack }) {
                   id="gemini-model"
                   type="text"
                   value={settings.gemini_model}
-                  onChange={(e) => setSettings({ ...settings, gemini_model: e.target.value })}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => updateSetting('gemini_model', e.target.value)}
                   className="w-full bg-[#fcfaf7] border border-[#f1f2f6] rounded-2xl px-6 py-4 text-sm focus:outline-none focus:border-[#dcdde1] transition shadow-inner"
                   placeholder="gemini-2.0-flash"
                 />
@@ -286,7 +310,7 @@ export default function Settings({ onBack }) {
                   min="1"
                   max="60"
                   value={settings.gemini_requests_per_minute}
-                  onChange={(e) => setSettings({ ...settings, gemini_requests_per_minute: e.target.value })}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => updateSetting('gemini_requests_per_minute', e.target.value)}
                   className="w-full bg-[#fcfaf7] border border-[#f1f2f6] rounded-2xl px-6 py-4 text-sm focus:outline-none focus:border-[#dcdde1] transition shadow-inner"
                   placeholder="8"
                 />
@@ -340,7 +364,7 @@ export default function Settings({ onBack }) {
                     <button
                       key={provider}
                       type="button"
-                      onClick={() => isEnabled && setSettings({ ...settings, ask_provider: provider })}
+                      onClick={() => isEnabled && updateSetting('ask_provider', provider)}
                       disabled={!isEnabled}
                       className={`min-h-[172px] p-8 rounded-3xl border-2 transition-all duration-300 text-left space-y-3 ${
                         isSelected
@@ -370,7 +394,7 @@ export default function Settings({ onBack }) {
                   id="ask-openrouter-model"
                   type="text"
                   value={settings.ask_openrouter_model}
-                  onChange={(e) => setSettings({ ...settings, ask_openrouter_model: e.target.value })}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => updateSetting('ask_openrouter_model', e.target.value)}
                   className="w-full bg-[#fcfaf7] border border-[#f1f2f6] rounded-2xl px-6 py-4 text-sm focus:outline-none focus:border-[#dcdde1] transition shadow-inner"
                   placeholder="qwen/qwen3.6-plus"
                 />
@@ -379,10 +403,10 @@ export default function Settings({ onBack }) {
               <div className="space-y-3">
                 <label htmlFor="ask-default-mode" className="text-xs font-bold text-[#b2bec3] uppercase tracking-widest px-1">Default Ask Mode</label>
                 <div id="ask-default-mode" className="grid grid-cols-3 gap-3">
-                  {['quick', 'balanced', 'deep'].map((mode) => (
+                  {(['quick', 'balanced', 'deep'] as AskMode[]).map((mode) => (
                     <button
                       key={mode}
-                      onClick={() => setSettings({ ...settings, ask_default_mode: mode })}
+                      onClick={() => updateSetting('ask_default_mode', mode)}
                       className={`py-3 px-4 rounded-2xl border-2 transition-all duration-300 text-xs font-bold uppercase tracking-[0.15em] ${
                         settings.ask_default_mode === mode
                           ? 'border-[#2d3436] bg-white shadow-md text-[#2d3436]'
@@ -404,7 +428,7 @@ export default function Settings({ onBack }) {
                     min="50"
                     step="50"
                     value={settings.ask_quick_limit}
-                    onChange={(e) => setSettings({ ...settings, ask_quick_limit: e.target.value })}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => updateSetting('ask_quick_limit', e.target.value)}
                     className="w-full bg-[#fcfaf7] border border-[#f1f2f6] rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-[#dcdde1] transition shadow-inner"
                   />
                 </div>
@@ -416,7 +440,7 @@ export default function Settings({ onBack }) {
                     min="100"
                     step="100"
                     value={settings.ask_balanced_limit}
-                    onChange={(e) => setSettings({ ...settings, ask_balanced_limit: e.target.value })}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => updateSetting('ask_balanced_limit', e.target.value)}
                     className="w-full bg-[#fcfaf7] border border-[#f1f2f6] rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-[#dcdde1] transition shadow-inner"
                   />
                 </div>
@@ -428,7 +452,7 @@ export default function Settings({ onBack }) {
                     min="100"
                     step="100"
                     value={settings.ask_deep_limit}
-                    onChange={(e) => setSettings({ ...settings, ask_deep_limit: e.target.value })}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => updateSetting('ask_deep_limit', e.target.value)}
                     className="w-full bg-[#fcfaf7] border border-[#f1f2f6] rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-[#dcdde1] transition shadow-inner"
                   />
                 </div>

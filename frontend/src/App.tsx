@@ -1,17 +1,18 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import ScreenshotList from './components/ScreenshotList'
-import SearchBar from './components/SearchBar'
-import ScreenshotDetail from './components/ScreenshotDetail'
-import Settings from './components/Settings'
-import OnboardingModal from './components/OnboardingModal'
-import AskArchivePanel from './components/AskArchivePanel'
-import { getScreenshots, getScreenshot, getStats, getTags, scanFolder, getScanProgress, getOnboardingInfo, getSettings, getStatus, togglePause, toggleWatcherPause, getHealth, searchScreenshots, ignoreOnboardingPending, askArchive, getAskSuggestions, deleteScreenshot } from './api'
-import { normalizeTags, formatAppLabel } from './utils/shared'
+import { useState, useEffect, useCallback, useMemo, useRef, type ChangeEvent } from 'react'
+import type { Screenshot, Stats, ScanProgress, OnboardingInfo, AskEntry, AskSuggestion, HealthCheck, StatusInfo, AiDisplay } from './types/index.ts'
+import ScreenshotList from './components/ScreenshotList.tsx'
+import SearchBar from './components/SearchBar.tsx'
+import ScreenshotDetail from './components/ScreenshotDetail.tsx'
+import Settings from './components/Settings.tsx'
+import OnboardingModal from './components/OnboardingModal.tsx'
+import AskArchivePanel from './components/AskArchivePanel.tsx'
+import { getScreenshots, getScreenshot, getStats, getTags, scanFolder, getScanProgress, getOnboardingInfo, getSettings, getStatus, togglePause, toggleWatcherPause, getHealth, searchScreenshots, ignoreOnboardingPending, askArchive, getAskSuggestions, deleteScreenshot } from './api.ts'
+import { normalizeTags, formatAppLabel } from './utils/shared.ts'
 
 const ASK_HISTORY_STORAGE_KEY = 'mnemosyne.askHistory.v1'
 const ASK_HISTORY_LIMIT = 60
 
-function loadStoredAskHistory() {
+function loadStoredAskHistory(): AskEntry[] {
   try {
     const raw = localStorage.getItem(ASK_HISTORY_STORAGE_KEY)
     if (!raw) return []
@@ -24,49 +25,49 @@ function loadStoredAskHistory() {
 
 export default function App() {
   const PAGE_SIZE = 24
-  const [screenshots, setScreenshots] = useState([])
-  const [stats, setStats] = useState(null)
-  const [tags, setTags] = useState([])
-  const [selected, setSelected] = useState(null)
-  const [routePath, setRoutePath] = useState(() => window.location.pathname || '/')
-  const [page, setPage] = useState(1)
-  const [hasMorePages, setHasMorePages] = useState(true)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [activeTags, setActiveTags] = useState([])
-  const [activeApps, setActiveApps] = useState([])
-  const [statusFilter, setStatusFilter] = useState(null)
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const [scanning, setScanning] = useState(false)
-  const [paused, setPaused] = useState(false)
-  const [watcherPaused, setWatcherPaused] = useState(false)
-  const [scanProgress, setScanProgress] = useState(null)
-  const [onboarding, setOnboarding] = useState(null)
-  const [onboardingDismissed, setOnboardingDismissed] = useState(false)
-  const [_health, setHealth] = useState(null)
-  const [uiError, setUiError] = useState('')
-  const [showAsk, setShowAsk] = useState(true)
-  const [viewMode, setViewMode] = useState('grid')
-  const [askLoading, setAskLoading] = useState(false)
-  const [askAnswer, setAskAnswer] = useState('')
-  const [askMatches, setAskMatches] = useState([])
-  const [askProvider, setAskProvider] = useState('')
-  const [askContextItems, setAskContextItems] = useState(0)
-  const [askRetrievedItems, setAskRetrievedItems] = useState(0)
-  const [askSuggestions, setAskSuggestions] = useState([])
-  const [askHistory, setAskHistory] = useState(() => loadStoredAskHistory())
-  const [activeAskHistoryId, setActiveAskHistoryId] = useState(null)
-  const [askQuestionSeed, setAskQuestionSeed] = useState('')
-  const scrollContainerRef = useRef(null)
-  const loadMoreRef = useRef(null)
-  const statsRef = useRef(null)
-  const autoRefreshInFlightRef = useRef(false)
-  const loadingMoreRef = useRef(false)
-  const loadMoreRequestRef = useRef(false)
-  const activeTagsRef = useRef(activeTags)
-  const activeAppsRef = useRef(activeApps)
+  const [screenshots, setScreenshots] = useState<Screenshot[]>([])
+  const [stats, setStats] = useState<Stats | null>(null)
+  const [tags, setTags] = useState<string[]>([])
+  const [selected, setSelected] = useState<Screenshot | null>(null)
+  const [routePath, setRoutePath] = useState<string>(() => window.location.pathname || '/')
+  const [page, setPage] = useState<number>(1)
+  const [hasMorePages, setHasMorePages] = useState<boolean>(true)
+  const [searchQuery, setSearchQuery] = useState<string>('')
+  const [activeTags, setActiveTags] = useState<string[]>([])
+  const [activeApps, setActiveApps] = useState<string[]>([])
+  const [statusFilter, setStatusFilter] = useState<string | null>(null)
+  const [dateFrom, setDateFrom] = useState<string>('')
+  const [dateTo, setDateTo] = useState<string>('')
+  const [loading, setLoading] = useState<boolean>(true)
+  const [loadingMore, setLoadingMore] = useState<boolean>(false)
+  const [scanning, setScanning] = useState<boolean>(false)
+  const [paused, setPaused] = useState<boolean>(false)
+  const [watcherPaused, setWatcherPaused] = useState<boolean>(false)
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null)
+  const [onboarding, setOnboarding] = useState<OnboardingInfo | null>(null)
+  const [onboardingDismissed, setOnboardingDismissed] = useState<boolean>(false)
+  const [_health, setHealth] = useState<HealthCheck | null>(null)
+  const [uiError, setUiError] = useState<string>('')
+  const [showAsk, setShowAsk] = useState<boolean>(true)
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [askLoading, setAskLoading] = useState<boolean>(false)
+  const [askAnswer, setAskAnswer] = useState<string>('')
+  const [askMatches, setAskMatches] = useState<Screenshot[]>([])
+  const [askProvider, setAskProvider] = useState<string>('')
+  const [askContextItems, setAskContextItems] = useState<number>(0)
+  const [askRetrievedItems, setAskRetrievedItems] = useState<number>(0)
+  const [askSuggestions, setAskSuggestions] = useState<AskSuggestion[]>([])
+  const [askHistory, setAskHistory] = useState<AskEntry[]>(() => loadStoredAskHistory())
+  const [activeAskHistoryId, setActiveAskHistoryId] = useState<string | number | null>(null)
+  const [askQuestionSeed, setAskQuestionSeed] = useState<string>('')
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const loadMoreRef = useRef<HTMLDivElement>(null)
+  const statsRef = useRef<Stats | null>(null)
+  const autoRefreshInFlightRef = useRef<boolean>(false)
+  const loadingMoreRef = useRef<boolean>(false)
+  const loadMoreRequestRef = useRef<boolean>(false)
+  const activeTagsRef = useRef<string[]>(activeTags)
+  const activeAppsRef = useRef<string[]>(activeApps)
 
   useEffect(() => {
     try {
@@ -76,7 +77,7 @@ export default function App() {
     }
   }, [askHistory])
 
-  const hydrateAskFromHistory = useCallback((entry) => {
+  const hydrateAskFromHistory = useCallback((entry: AskEntry) => {
     if (!entry) return
     setAskAnswer(entry.answer || '')
     setAskMatches(Array.isArray(entry.matches) ? entry.matches : [])
@@ -95,7 +96,7 @@ export default function App() {
     activeAppsRef.current = activeApps
   }, [activeApps])
 
-  const navigate = useCallback((path) => {
+  const navigate = useCallback((path: string) => {
     if (window.location.pathname === path) return
     window.history.pushState({}, '', path)
     setRoutePath(path)
@@ -184,7 +185,7 @@ export default function App() {
     }
   }, [])
 
-  const loadData = useCallback(async ({ reset = true, silent = false, query = searchQuery, refreshMeta = true, tags = activeTagsRef.current, apps = activeAppsRef.current } = {}) => {
+  const loadData = useCallback(async ({ reset = true, silent = false, query = searchQuery, refreshMeta = true, tags = activeTagsRef.current, apps = activeAppsRef.current }: { reset?: boolean; silent?: boolean; query?: string; refreshMeta?: boolean; tags?: string[]; apps?: string[] } = {}) => {
     const nextPage = reset ? 1 : page + 1
 
     if (reset && !silent) setLoading(true)
@@ -260,7 +261,7 @@ export default function App() {
   useEffect(() => {
     let isUnmounted = false
 
-    const loadSuggestions = async (refresh = false) => {
+    const loadSuggestions = async (refresh: boolean) => {
       try {
         const res = await getAskSuggestions(refresh)
         const suggestions = res?.data?.suggestions || []
@@ -398,7 +399,7 @@ export default function App() {
     return () => clearInterval(interval)
   }, [scanning, loadData])
 
-  const handleSearch = async (q) => {
+  const handleSearch = async (q: string) => {
     setSearchQuery(q)
     setPage(1)
     setShowAsk(false)
@@ -411,7 +412,7 @@ export default function App() {
     await loadData({ reset: true, query: q })
   }
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id: number) => {
     if (!window.confirm("Permanently remove this memory from the archive?")) return
     try {
       await deleteScreenshot(id)
@@ -423,7 +424,7 @@ export default function App() {
     }
   }
 
-  const handleTagClick = (tag) => {
+  const handleTagClick = (tag: string) => {
     const nextActiveTags = activeTags.includes(tag)
       ? activeTags.filter((t) => t !== tag)
       : [...activeTags, tag]
@@ -434,7 +435,7 @@ export default function App() {
     loadData({ reset: true, query: '', tags: nextActiveTags, apps: activeAppsRef.current })
   }
 
-  const handleAppClick = (app) => {
+  const handleAppClick = (app: string) => {
     const nextActiveApps = activeApps.includes(app)
       ? activeApps.filter((item) => item !== app)
       : [...activeApps, app]
@@ -449,7 +450,7 @@ export default function App() {
   const topApps = useMemo(() => (stats?.top_apps || []).filter((item) => item.app), [stats])
   const hasActiveFilter = activeTags.length > 0 || activeApps.length > 0
   const tagCounts = useMemo(() => {
-    const counts = new Map()
+    const counts = new Map<string, number>()
     for (const screenshot of screenshots) {
       for (const tag of normalizeTags(screenshot.tags)) {
         if (!tag || tag === '#') continue
@@ -475,7 +476,7 @@ export default function App() {
 
   const filteredScreenshots = screenshots
 
-  const hasMatchForTag = useCallback((candidateTag) => {
+  const hasMatchForTag = useCallback((candidateTag: string) => {
     return screenshots.some((ss) => {
       const ssTags = normalizeTags(ss.tags)
       const matchesCurrentTags = activeTags.every((tag) => ssTags.includes(tag))
@@ -484,7 +485,7 @@ export default function App() {
     })
   }, [screenshots, activeTags, activeApps])
 
-  const hasMatchForApp = useCallback((candidateApp) => {
+  const hasMatchForApp = useCallback((candidateApp: string) => {
     return screenshots.some((ss) => {
       const ssTags = normalizeTags(ss.tags)
       const matchesCurrentTags = activeTags.every((tag) => ssTags.includes(tag))
@@ -493,7 +494,7 @@ export default function App() {
     })
   }, [screenshots, activeTags, activeApps])
 
-  const openScreenshot = useCallback((screenshot) => {
+  const openScreenshot = useCallback((screenshot: Screenshot) => {
     setSelected(screenshot)
     navigate(`/screenshot/${screenshot.id}`)
   }, [navigate])
@@ -516,7 +517,7 @@ export default function App() {
         const data = res.data
         setScanProgress(prev => ({
           ...prev,
-          queued: prev.queued + data.queued,
+          queued: (prev?.queued ?? 0) + data.queued,
           total: data.total_new,
         }))
         hasMore = data.has_more
@@ -554,12 +555,12 @@ export default function App() {
     }
   }
 
-  const handleAskArchive = async (question) => {
+  const handleAskArchive = async (question: string) => {
     setAskLoading(true)
     try {
       setUiError('')
       const res = await askArchive(question, 8)
-      const entry = {
+      const entry: AskEntry = {
         id: Date.now(),
         question,
         answer: res.data.answer || '',
@@ -596,7 +597,7 @@ export default function App() {
     )
   }
 
-  const navigation = [
+  const navigation: { id: string | null; label: string; count?: number; icon: string }[] = [
     { id: 'ask', label: 'Ask Mnemosyne', icon: 'M13 10V3L4 14h7v7l9-11h-7z' },
     { id: null, label: 'All Memories', count: stats?.total, icon: 'M4 6h16M4 10h16M4 14h16M4 18h16' },
     { id: 'processed', label: 'Analyzed', count: stats?.processed, icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
@@ -627,7 +628,7 @@ export default function App() {
                 return (
                   <button
                     key={item.id}
-                    onClick={() => { 
+                    onClick={() => {
                       if (item.id === 'ask') {
                         setShowAsk(true)
                         setStatusFilter(null)
@@ -690,14 +691,14 @@ export default function App() {
                     <span>{Math.round((scanProgress.done/scanProgress.total)*100 || 0)}%</span>
                   </div>
                   <div className="w-full bg-[#f0ede9] h-1 rounded-full overflow-hidden">
-                    <div 
-                      className={`h-full transition-all duration-1000 ease-out ${paused ? 'bg-[#c9c7c3]' : 'bg-[#1a1c1d]'}`} 
-                      style={{width: `${(scanProgress.done/scanProgress.total)*100 || 0}%`}} 
+                    <div
+                      className={`h-full transition-all duration-1000 ease-out ${paused ? 'bg-[#c9c7c3]' : 'bg-[#1a1c1d]'}`}
+                      style={{width: `${(scanProgress.done/scanProgress.total)*100 || 0}%`}}
                     />
                   </div>
                </div>
-               
-               <button 
+
+               <button
                  onClick={handleTogglePause}
                  className="w-full text-[10px] font-bold text-[#7f868d] hover:text-[#1a1c1d] uppercase tracking-widest transition py-1"
                >
@@ -939,14 +940,14 @@ export default function App() {
                     <input
                       type="date"
                       value={dateFrom}
-                      onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => { setDateFrom(e.target.value); setPage(1); }}
                       className="bg-transparent border-none text-[13px] text-[#1a1c1d] focus:ring-0 p-0 w-32 font-serif italic font-bold"
                     />
                     <div className="w-px h-5 bg-[#e8e2d9]" />
                     <input
                       type="date"
                       value={dateTo}
-                      onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => { setDateTo(e.target.value); setPage(1); }}
                       className="bg-transparent border-none text-[13px] text-[#1a1c1d] focus:ring-0 p-0 w-32 font-serif italic font-bold"
                     />
                 </div>

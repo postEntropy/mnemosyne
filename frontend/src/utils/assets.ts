@@ -1,9 +1,8 @@
 /**
  * Preload critical assets (Google Fonts, paper texture) and cache them.
  * If the network is unavailable, CSS fallbacks will be used.
- * Call this once during app initialization.
  */
-export function preloadCriticalAssets() {
+export function preloadCriticalAssets(): void {
   // Preload Google Fonts
   const fontLink = document.createElement('link')
   fontLink.rel = 'stylesheet'

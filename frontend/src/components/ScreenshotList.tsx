@@ -1,8 +1,17 @@
 import { useState } from 'react'
-import { rescanScreenshot } from '../api'
-import { normalizeTags, sanitizeSummary, sanitizeDescription, formatCaptureDateTime, getThumbnailUrl } from '../utils/shared'
+import { rescanScreenshot } from '../api.ts'
+import { normalizeTags, sanitizeSummary, sanitizeDescription, formatCaptureDateTime, getThumbnailUrl } from '../utils/shared.ts'
+import type { Screenshot } from '../types/index.ts'
 
-export default function ScreenshotList({ screenshots, onSelect, onRefresh, onDelete, viewMode = 'grid' }) {
+interface ScreenshotListProps {
+  screenshots: Screenshot[]
+  onSelect: (screenshot: Screenshot) => void
+  onRefresh: () => void
+  onDelete: (id: number) => void
+  viewMode?: 'grid' | 'list'
+}
+
+export default function ScreenshotList({ screenshots, onSelect, onRefresh, onDelete, viewMode = 'grid' }: ScreenshotListProps) {
   if (viewMode === 'list') {
     return (
       <div className="px-5 md:px-8 xl:px-12 2xl:px-16">
@@ -24,47 +33,51 @@ export default function ScreenshotList({ screenshots, onSelect, onRefresh, onDel
   return (
     <div className="px-5 md:px-8 xl:px-12 2xl:px-16">
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6 md:gap-7">
-      {screenshots.map((ss) => (
-        <ScreenshotCard
-          key={ss.id}
-          screenshot={ss}
-          onSelect={onSelect}
-          onDelete={onDelete}
-          onRefresh={onRefresh}
-        />
-      ))}
+        {screenshots.map((ss) => (
+          <ScreenshotCard
+            key={ss.id}
+            screenshot={ss}
+            onSelect={onSelect}
+            onDelete={onDelete}
+            onRefresh={onRefresh}
+          />
+        ))}
       </div>
     </div>
   )
 }
 
-function ScreenshotCard({ screenshot, onSelect, onDelete }) {
+interface ScreenshotCardProps {
+  screenshot: Screenshot
+  onSelect: (screenshot: Screenshot) => void
+  onDelete: (id: number) => void
+  onRefresh: () => void
+}
+
+function ScreenshotCard({ screenshot, onSelect, onDelete }: ScreenshotCardProps) {
   const [thumbFailed, setThumbFailed] = useState(false)
   const [rescanning, setRescanning] = useState(false)
 
-  const handleRescanClick = async (e) => {
+  const handleRescanClick = async (e: React.MouseEvent) => {
     e.stopPropagation()
     if (rescanning) return
     setRescanning(true)
     try {
       await rescanScreenshot(screenshot.id)
-    } catch (error) {
-      console.error(error)
+    } catch {
+      // Error handled silently
     } finally {
       setRescanning(false)
     }
   }
 
-  const handleDeleteClick = (e) => {
+  const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!onDelete) return
     onDelete(screenshot.id)
   }
 
   const thumbSrc = getThumbnailUrl(screenshot.thumbnail_path)
-
   const formattedDateTime = formatCaptureDateTime(screenshot.timestamp)
-
   const tags = normalizeTags(screenshot.tags)
   const isAnalyzing = screenshot.status === 'processing'
   const summary = sanitizeSummary(screenshot)
@@ -105,11 +118,11 @@ function ScreenshotCard({ screenshot, onSelect, onDelete }) {
         )}
 
         {thumbSrc && !thumbFailed ? (
-          <img 
-            src={thumbSrc} 
-            alt={screenshot.filename} 
+          <img
+            src={thumbSrc}
+            alt={screenshot.filename}
             onError={() => setThumbFailed(true)}
-            className={`w-full h-full object-cover transition duration-400 group-hover:scale-110 ${isAnalyzing ? 'blur-sm grayscale opacity-40' : 'opacity-90 group-hover:opacity-100 group-hover:brightness-75'}`} 
+            className={`w-full h-full object-cover transition duration-400 group-hover:scale-110 ${isAnalyzing ? 'blur-sm grayscale opacity-40' : 'opacity-90 group-hover:opacity-100 group-hover:brightness-75'}`}
           />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center text-[#94999e] text-[10px] font-bold uppercase tracking-[0.2em] gap-3 bg-[#fdfcfb]">
@@ -121,8 +134,7 @@ function ScreenshotCard({ screenshot, onSelect, onDelete }) {
             <span>Unrecorded</span>
           </div>
         )}
-        
-        {/* Status Badge - Physical Tag Look */}
+
         {isAnalyzing && (
           <div className="absolute top-4 right-4">
             <span
@@ -136,7 +148,6 @@ function ScreenshotCard({ screenshot, onSelect, onDelete }) {
         )}
 
         <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-
       </div>
 
       <div className="px-1 space-y-1">
@@ -148,7 +159,7 @@ function ScreenshotCard({ screenshot, onSelect, onDelete }) {
             {formattedDateTime}
           </span>
         </div>
-        
+
         <h3
           title={summary}
           className="relative text-[15px] font-reading-serif font-semibold text-[#1a1c1d] leading-tight group-hover:text-[#5e6472] transition-colors duration-500"
@@ -156,32 +167,37 @@ function ScreenshotCard({ screenshot, onSelect, onDelete }) {
           <span className="block overflow-hidden whitespace-nowrap pr-8">{summary}</span>
           <span className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-r from-transparent to-[#fdfcfb]" />
         </h3>
-        
+
         {tags.length > 0 && (
-            <div className="flex gap-1.5 pt-0.5 overflow-hidden opacity-40 group-hover:opacity-70 transition-opacity">
-                {tags.slice(0, 3).map(tag => (
-                    <span key={tag} className="text-[9px] font-bold text-[#1a1c1d]">#{tag}</span>
-                ))}
-            </div>
+          <div className="flex gap-1.5 pt-0.5 overflow-hidden opacity-40 group-hover:opacity-70 transition-opacity">
+            {tags.slice(0, 3).map((tag) => (
+              <span key={tag} className="text-[9px] font-bold text-[#1a1c1d]">#{tag}</span>
+            ))}
+          </div>
         )}
       </div>
     </div>
   )
 }
 
-function ScreenshotListRow({ screenshot, onSelect, onDelete }) {
+interface ScreenshotListRowProps {
+  screenshot: Screenshot
+  onSelect: (screenshot: Screenshot) => void
+  onDelete: (id: number) => void
+}
+
+function ScreenshotListRow({ screenshot, onSelect, onDelete }: ScreenshotListRowProps) {
   const [thumbFailed, setThumbFailed] = useState(false)
 
   const thumbSrc = getThumbnailUrl(screenshot.thumbnail_path)
-
   const tags = normalizeTags(screenshot.tags)
   const summary = sanitizeSummary(screenshot)
   const descriptionPreview = sanitizeDescription(screenshot)
   const formattedDateTime = formatCaptureDateTime(screenshot.timestamp, true)
   const isAnalyzing = screenshot.status === 'processing'
-  const handleDeleteClick = (e) => {
+
+  const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!onDelete) return
     onDelete(screenshot.id)
   }
 
