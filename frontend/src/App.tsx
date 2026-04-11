@@ -1,144 +1,62 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type ChangeEvent } from 'react'
-import type { Screenshot, Stats, ScanProgress, OnboardingInfo, AskEntry, AskSuggestion, HealthCheck } from './types/index.ts'
+import type { Screenshot, OnboardingInfo } from './types/index.ts'
 import ScreenshotList from './components/ScreenshotList.tsx'
 import SearchBar from './components/SearchBar.tsx'
 import ScreenshotDetail from './components/ScreenshotDetail.tsx'
 import Settings from './components/Settings.tsx'
 import OnboardingModal from './components/OnboardingModal.tsx'
 import AskArchivePanel from './components/AskArchivePanel.tsx'
-import { getScreenshots, getScreenshot, getStats, getTags, scanFolder, getScanProgress, getOnboardingInfo, getSettings, getStatus, togglePause, toggleWatcherPause, getHealth, searchScreenshots, ignoreOnboardingPending, askArchive, getAskSuggestions, deleteScreenshot } from './api.ts'
+import { getScreenshot, getOnboardingInfo, getSettings, ignoreOnboardingPending, deleteScreenshot } from './api.ts'
 import { normalizeTags, formatAppLabel } from './utils/shared.ts'
-
-const ASK_HISTORY_STORAGE_KEY = 'mnemosyne.askHistory.v1'
-const ASK_HISTORY_LIMIT = 60
-
-function loadStoredAskHistory(): AskEntry[] {
-  try {
-    const raw = localStorage.getItem(ASK_HISTORY_STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
+import { useNavigation } from './hooks/useNavigation.ts'
+import { useScan } from './hooks/useScan.ts'
+import { useAskArchive } from './hooks/useAskArchive.ts'
+import { useArchive } from './hooks/useArchive.ts'
 
 export default function App() {
-  const PAGE_SIZE = 24
-  const [screenshots, setScreenshots] = useState<Screenshot[]>([])
-  const [stats, setStats] = useState<Stats | null>(null)
-  const [tags, setTags] = useState<string[]>([])
+  const { routePath, navigate } = useNavigation()
+  const { scanning, scanProgress, paused, watcherPaused, handleScanFolder, handleTogglePause, handleToggleWatcherPause, setScanning, setScanProgress } = useScan(() => loadData({ reset: true }))
+  const { askLoading, askAnswer, askMatches, askContextItems, askRetrievedItems, askSuggestions, askHistory, activeAskHistoryId, askQuestionSeed, handleAskArchive, hydrateAskFromHistory, setActiveAskHistoryId } = useAskArchive((msg) => setUiError(msg))
+  const { screenshots, stats, tags, hasMorePages, loading, loadingMore, showAsk, viewMode, uiError, filters, loadData, setShowAsk, setViewMode, setUiError, setPage } = useArchive(null)
+  const { statusFilter, dateFrom, dateTo, activeTags, activeApps, searchQuery, setStatusFilter, setDateFrom, setDateTo, setActiveTags, setActiveApps, setSearchQuery } = filters
+
   const [selected, setSelected] = useState<Screenshot | null>(null)
-  const [routePath, setRoutePath] = useState<string>(() => window.location.pathname || '/')
-  const [page, setPage] = useState<number>(1)
-  const [hasMorePages, setHasMorePages] = useState<boolean>(true)
-  const [searchQuery, setSearchQuery] = useState<string>('')
-  const [activeTags, setActiveTags] = useState<string[]>([])
-  const [activeApps, setActiveApps] = useState<string[]>([])
-  const [statusFilter, setStatusFilter] = useState<string | null>(null)
-  const [dateFrom, setDateFrom] = useState<string>('')
-  const [dateTo, setDateTo] = useState<string>('')
-  const [loading, setLoading] = useState<boolean>(true)
-  const [loadingMore, setLoadingMore] = useState<boolean>(false)
-  const [scanning, setScanning] = useState<boolean>(false)
-  const [paused, setPaused] = useState<boolean>(false)
-  const [watcherPaused, setWatcherPaused] = useState<boolean>(false)
-  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null)
   const [onboarding, setOnboarding] = useState<OnboardingInfo | null>(null)
   const [onboardingDismissed, setOnboardingDismissed] = useState<boolean>(false)
-  const [_health, setHealth] = useState<HealthCheck | null>(null)
-  const [uiError, setUiError] = useState<string>('')
-  const [showAsk, setShowAsk] = useState<boolean>(true)
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
-  const [askLoading, setAskLoading] = useState<boolean>(false)
-  const [askAnswer, setAskAnswer] = useState<string>('')
-  const [askMatches, setAskMatches] = useState<Screenshot[]>([])
-  const [_askProvider, setAskProvider] = useState<string>('')
-  const [askContextItems, setAskContextItems] = useState<number>(0)
-  const [askRetrievedItems, setAskRetrievedItems] = useState<number>(0)
-  const [askSuggestions, setAskSuggestions] = useState<AskSuggestion[]>([])
-  const [askHistory, setAskHistory] = useState<AskEntry[]>(() => loadStoredAskHistory())
-  const [activeAskHistoryId, setActiveAskHistoryId] = useState<number | null>(null)
-  const [askQuestionSeed, setAskQuestionSeed] = useState<string>('')
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const loadMoreRef = useRef<HTMLDivElement>(null)
-  const statsRef = useRef<Stats | null>(null)
-  const autoRefreshInFlightRef = useRef<boolean>(false)
   const loadingMoreRef = useRef<boolean>(false)
   const loadMoreRequestRef = useRef<boolean>(false)
   const activeTagsRef = useRef<string[]>(activeTags)
   const activeAppsRef = useRef<string[]>(activeApps)
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(ASK_HISTORY_STORAGE_KEY, JSON.stringify(askHistory))
-    } catch (e) {
-      console.error(e)
-    }
-  }, [askHistory])
+  useEffect(() => { activeTagsRef.current = activeTags }, [activeTags])
+  useEffect(() => { activeAppsRef.current = activeApps }, [activeApps])
 
-  const hydrateAskFromHistory = useCallback((entry: AskEntry) => {
-    if (!entry) return
-    setAskAnswer(entry.answer || '')
-    setAskMatches(Array.isArray(entry.matches) ? entry.matches : [])
-    setAskProvider(entry.provider || '')
-    setAskContextItems(Number(entry.contextItems || 0))
-    setAskRetrievedItems(Number(entry.retrievedItems || 0))
-    setAskQuestionSeed(entry.question || '')
-    setActiveAskHistoryId(entry.id)
-  }, [])
-
-  useEffect(() => {
-    activeTagsRef.current = activeTags
-  }, [activeTags])
-
-  useEffect(() => {
-    activeAppsRef.current = activeApps
-  }, [activeApps])
-
-  const navigate = useCallback((path: string) => {
-    if (window.location.pathname === path) return
-    window.history.pushState({}, '', path)
-    setRoutePath(path)
-  }, [])
-
-  useEffect(() => {
-    const onPopState = () => setRoutePath(window.location.pathname || '/')
-    window.addEventListener('popstate', onPopState)
-    return () => window.removeEventListener('popstate', onPopState)
-  }, [])
-
+  // Route: screenshot detail
   useEffect(() => {
     if (!routePath.startsWith('/screenshot/')) {
       if (selected) setSelected(null)
       return
     }
-
     const idPart = routePath.split('/')[2]
     const screenshotId = Number(idPart)
     if (!Number.isFinite(screenshotId)) {
       window.history.replaceState({}, '', '/')
-      setRoutePath('/')
       return
     }
-
     if (selected?.id === screenshotId) return
-
     const existing = screenshots.find((ss) => ss.id === screenshotId)
-    if (existing) {
-      setSelected(existing)
-      return
-    }
-
+    if (existing) { setSelected(existing); return }
     getScreenshot(screenshotId)
       .then((res) => setSelected(res.data))
       .catch(() => {
         setUiError('Nao foi possivel abrir esta captura.')
         window.history.replaceState({}, '', '/')
-        setRoutePath('/')
       })
   }, [routePath, screenshots, selected])
 
+  // Route: ask
   useEffect(() => {
     if (routePath === '/ask') {
       setShowAsk(true)
@@ -146,258 +64,58 @@ export default function App() {
       setActiveAskHistoryId(null)
       return
     }
-
     if (!routePath.startsWith('/ask/')) return
-
     setShowAsk(true)
     setStatusFilter(null)
-
     const askId = routePath.split('/')[2]
     const existing = askHistory.find((item) => String(item.id) === String(askId))
-    if (existing) {
-      hydrateAskFromHistory(existing)
-      return
-    }
-
+    if (existing) { hydrateAskFromHistory(existing); return }
     window.history.replaceState({}, '', '/ask')
-    setRoutePath('/ask')
   }, [routePath, askHistory, hydrateAskFromHistory])
 
-  const loadMeta = useCallback(async () => {
-    try {
-      const [statsRes, tagsRes, statusRes, healthRes] = await Promise.all([
-        getStats(),
-        getTags(),
-        getStatus(),
-        getHealth().catch(() => ({ data: null }))
-      ])
-      setStats(statsRes.data)
-      setTags(tagsRes.data.tags)
-      setPaused(statusRes.data.is_paused)
-      setWatcherPaused(Boolean(statusRes.data.watcher_paused))
-      setHealth(healthRes?.data)
-      return {
-        stats: statsRes.data,
-      }
-    } catch (e) {
-      console.error(e)
-      return null
-    }
-  }, [])
-
-  const loadData = useCallback(async ({ reset = true, silent = false, query = searchQuery, refreshMeta = true, tags = activeTagsRef.current, apps = activeAppsRef.current }: { reset?: boolean; silent?: boolean; query?: string; refreshMeta?: boolean; tags?: string[]; apps?: string[] } = {}) => {
-    const nextPage = reset ? 1 : page + 1
-
-    if (reset && !silent) setLoading(true)
-    if (!reset) setLoadingMore(true)
-    if (!reset) loadingMoreRef.current = true
-
-    try {
-      setUiError('')
-
-      const ssRes = query
-        ? await searchScreenshots(query, nextPage, PAGE_SIZE)
-        : await getScreenshots(nextPage, PAGE_SIZE, statusFilter, dateFrom, dateTo, tags, apps)
-
-      const nextScreenshots = ssRes.data.screenshots || []
-      const totalPages = ssRes.data.pages || 1
-
-      setScreenshots((prev) => {
-        if (reset) return nextScreenshots
-        const existingIds = new Set(prev.map((ss) => ss.id))
-        const deduped = nextScreenshots.filter((ss) => !existingIds.has(ss.id))
-        return [...prev, ...deduped]
-      })
-
-      setPage(nextPage)
-      setHasMorePages(nextPage < totalPages)
-
-      if (reset && refreshMeta) {
-        await loadMeta()
-      }
-    } catch (e) {
-      console.error(e)
-      setUiError('Unable to load archive data right now.')
-    } finally {
-      setLoading(false)
-      setLoadingMore(false)
-      if (!reset) loadingMoreRef.current = false
-    }
-  }, [page, statusFilter, dateFrom, dateTo, searchQuery, loadMeta])
-
+  // Onboarding + initial load
   useEffect(() => {
-    statsRef.current = stats
-  }, [stats])
-
-  // Initial load, config and dependency changes
-  useEffect(() => {
-    // Load UI Scale from settings
     getSettings().then(res => {
       if (res.data.ui_scale) {
-        const scale = parseFloat(res.data.ui_scale)
-        document.documentElement.style.fontSize = `${scale * 16}px`
+        document.documentElement.style.fontSize = `${parseFloat(res.data.ui_scale) * 16}px`
       }
     })
-
-    // Only check onboarding on first load, not on filter changes
     if (!onboardingDismissed) {
       const stored = localStorage.getItem('onboardingDismissed')
       if (stored) {
         setOnboardingDismissed(true)
-        // User already dismissed onboarding in the past; make sure legacy pending items are ignored.
         ignoreOnboardingPending()
           .then(() => loadData({ reset: true, silent: true }))
           .catch((e) => console.error(e))
       } else {
         getOnboardingInfo().then(res => {
-          if (res.data.unregistered > 0) {
-            setOnboarding(res.data)
-          }
+          if (res.data.unregistered > 0) setOnboarding(res.data)
         })
       }
     }
-  }, []) // Empty deps - only run once on mount
+  }, [])
 
-  useEffect(() => {
-    let isUnmounted = false
+  useEffect(() => { loadData({ reset: true }) }, [loadData])
 
-    const loadSuggestions = async (refresh: boolean) => {
-      try {
-        const res = await getAskSuggestions(refresh)
-        const suggestions = res?.data?.suggestions || []
-        if (!isUnmounted) {
-          setAskSuggestions(Array.isArray(suggestions) ? suggestions : [])
-        }
-      } catch (e) {
-        console.error(e)
-      }
-    }
-
-    loadSuggestions(false)
-
-    if (!showAsk) {
-      return () => {
-        isUnmounted = true
-      }
-    }
-
-    const interval = setInterval(() => {
-      loadSuggestions(true)
-    }, 480000)
-
-    return () => {
-      isUnmounted = true
-      clearInterval(interval)
-    }
-  }, [showAsk])
-
-  useEffect(() => {
-    loadData({ reset: true })
-  }, [loadData])
-
-  // Background refresh + timeline sync for new watcher captures.
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      if (autoRefreshInFlightRef.current) return
-      autoRefreshInFlightRef.current = true
-      try {
-        const previousStats = statsRef.current
-        const meta = await loadMeta()
-        const nextStats = meta?.stats
-        if (!nextStats) return
-
-        const prevTotal = previousStats?.total ?? 0
-        const nextTotal = nextStats.total ?? 0
-        const prevActive = (previousStats?.pending ?? 0) + (previousStats?.processing ?? 0)
-        const nextActive = (nextStats?.pending ?? 0) + (nextStats?.processing ?? 0)
-
-        const shouldRefreshTimeline = nextTotal !== prevTotal || prevActive > 0 || nextActive > 0
-        if (shouldRefreshTimeline) {
-          await loadData({ reset: true, silent: true, refreshMeta: false })
-        }
-      } finally {
-        autoRefreshInFlightRef.current = false
-      }
-    }, 8000)
-    return () => clearInterval(interval)
-  }, [loadMeta, loadData])
-
+  // IntersectionObserver for infinite scroll
   useEffect(() => {
     if (showAsk || loading || !hasMorePages) return
     const sentinel = loadMoreRef.current
     const root = scrollContainerRef.current
     if (!sentinel || !root) return
-
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting) {
           if (loadingMoreRef.current || loadMoreRequestRef.current) return
           loadMoreRequestRef.current = true
-          Promise.resolve(loadData({ reset: false, silent: true })).finally(() => {
-            loadMoreRequestRef.current = false
-          })
+          Promise.resolve(loadData({ reset: false, silent: true })).finally(() => { loadMoreRequestRef.current = false })
         }
       },
       { root, rootMargin: '240px 0px' }
     )
-
     observer.observe(sentinel)
     return () => observer.disconnect()
   }, [showAsk, loading, hasMorePages, loadData])
-
-  // Sync scan progress if scanning is active
-  useEffect(() => {
-    if (!scanning) return;
-
-    let idleTicks = 0
-    let errorTicks = 0
-    const startedAt = Date.now()
-
-    const interval = setInterval(async () => {
-        try {
-            const p = await getScanProgress()
-        errorTicks = 0
-
-        const total = Math.max(0, p.data.total || 0)
-        const done = Math.max(0, Math.min(total, (p.data.processed || 0) + (p.data.errors || 0)))
-
-            setScanProgress(prev => ({
-          queued: prev?.queued ?? 0,
-          done,
-          total,
-                current_file: p.data.current_file
-            }))
-
-        if ((p.data.pending || 0) === 0 && !p.data.current_file) {
-          idleTicks += 1
-        } else {
-          idleTicks = 0
-        }
-
-        // Require two consecutive idle checks to avoid race with worker cleanup.
-        if (idleTicks >= 2) {
-                setScanning(false)
-                setScanProgress(null)
-          loadData({ reset: true })
-            }
-
-        // Safety net: stop polling after 10 minutes.
-        if (Date.now() - startedAt > 10 * 60 * 1000) {
-          setScanning(false)
-          setUiError('Scan demorou demais e foi encerrado. Verifique o backend/Ollama.')
-        }
-        } catch (e) {
-            console.error(e)
-        errorTicks += 1
-        if (errorTicks >= 3) {
-          setScanning(false)
-          setScanProgress(null)
-          setUiError('Falha ao acompanhar progresso do scan.')
-        }
-        }
-    }, 2000)
-    return () => clearInterval(interval)
-  }, [scanning, loadData])
 
   const handleSearch = async (q: string) => {
     setSearchQuery(q)
@@ -418,16 +136,13 @@ export default function App() {
       await deleteScreenshot(id)
       setSelected(null)
       loadData({ reset: true, silent: true })
-    } catch (e) {
-      console.error(e)
+    } catch {
       setUiError('Nao foi possivel deletar a captura.')
     }
   }
 
   const handleTagClick = (tag: string) => {
-    const nextActiveTags = activeTags.includes(tag)
-      ? activeTags.filter((t) => t !== tag)
-      : [...activeTags, tag]
+    const nextActiveTags = activeTags.includes(tag) ? activeTags.filter((t) => t !== tag) : [...activeTags, tag]
     setPage(1)
     setSearchQuery('')
     setShowAsk(false)
@@ -436,9 +151,7 @@ export default function App() {
   }
 
   const handleAppClick = (app: string) => {
-    const nextActiveApps = activeApps.includes(app)
-      ? activeApps.filter((item) => item !== app)
-      : [...activeApps, app]
+    const nextActiveApps = activeApps.includes(app) ? activeApps.filter((item) => item !== app) : [...activeApps, app]
     setPage(1)
     setSearchQuery('')
     setShowAsk(false)
@@ -459,129 +172,28 @@ export default function App() {
     }
     return counts
   }, [screenshots])
-  const sortedTopApps = useMemo(() => {
-    return [...topApps].sort((a, b) => {
-      const countDiff = (b.count || 0) - (a.count || 0)
-      if (countDiff !== 0) return countDiff
-      return a.app.localeCompare(b.app)
-    })
-  }, [topApps])
-  const sortedConceptTags = useMemo(() => {
-    return [...conceptTags].sort((a, b) => {
-      const countDiff = (tagCounts.get(b) || 0) - (tagCounts.get(a) || 0)
-      if (countDiff !== 0) return countDiff
-      return a.localeCompare(b)
-    })
-  }, [conceptTags, tagCounts])
-
-  const filteredScreenshots = screenshots
+  const sortedTopApps = useMemo(() => [...topApps].sort((a, b) => (b.count || 0) - (a.count || 0) || a.app.localeCompare(b.app)), [topApps])
+  const sortedConceptTags = useMemo(() => [...conceptTags].sort((a, b) => (tagCounts.get(b) || 0) - (tagCounts.get(a) || 0) || a.localeCompare(b)), [conceptTags, tagCounts])
 
   const hasMatchForTag = useCallback((candidateTag: string) => {
     return screenshots.some((ss) => {
       const ssTags = normalizeTags(ss.tags)
-      const matchesCurrentTags = activeTags.every((tag) => ssTags.includes(tag))
-      const matchesCurrentApps = activeApps.length === 0 || activeApps.includes(ss.application || 'Unknown')
-      return matchesCurrentTags && matchesCurrentApps && ssTags.includes(candidateTag)
+      return activeTags.every((tag) => ssTags.includes(tag)) && (activeApps.length === 0 || activeApps.includes(ss.application || 'Unknown')) && ssTags.includes(candidateTag)
     })
   }, [screenshots, activeTags, activeApps])
 
   const hasMatchForApp = useCallback((candidateApp: string) => {
     return screenshots.some((ss) => {
       const ssTags = normalizeTags(ss.tags)
-      const matchesCurrentTags = activeTags.every((tag) => ssTags.includes(tag))
-      const matchesCurrentApps = activeApps.length === 0 || activeApps.includes(ss.application || 'Unknown')
-      return matchesCurrentTags && matchesCurrentApps && (ss.application || 'Unknown') === candidateApp
+      return activeTags.every((tag) => ssTags.includes(tag)) && (activeApps.length === 0 || activeApps.includes(ss.application || 'Unknown')) && (ss.application || 'Unknown') === candidateApp
     })
   }, [screenshots, activeTags, activeApps])
 
-  const openScreenshot = useCallback((screenshot: Screenshot) => {
-    setSelected(screenshot)
-    navigate(`/screenshot/${screenshot.id}`)
-  }, [navigate])
+  const openScreenshot = useCallback((screenshot: Screenshot) => { setSelected(screenshot); navigate(`/screenshot/${screenshot.id}`) }, [navigate])
+  const closeScreenshot = useCallback(() => { setSelected(null); navigate('/') }, [navigate])
 
-  const closeScreenshot = useCallback(() => {
-    setSelected(null)
-    navigate('/')
-  }, [navigate])
-
-  const handleScanFolder = async () => {
-    setScanning(true)
-    setScanProgress({ queued: 0, total: 0, done: 0, current_file: null })
-    try {
-      const batchSize = 50
-      let batchIndex = 0
-      let hasMore = true
-
-      while (hasMore) {
-        const res = await scanFolder(batchSize, batchIndex)
-        const data = res.data
-        setScanProgress(prev => ({
-          queued: (prev?.queued ?? 0) + data.queued,
-          total: data.total_new,
-          done: prev?.done ?? 0,
-          current_file: prev?.current_file ?? null,
-        }))
-        hasMore = data.has_more
-        batchIndex++
-        if (hasMore) {
-          await new Promise(r => setTimeout(r, 500))
-        }
-      }
-      // Progress monitoring is handled by useEffect above
-    } catch (e) {
-      console.error(e)
-      setUiError('Scan falhou ao enfileirar capturas.')
-      setScanning(false)
-      setScanProgress(null)
-    }
-  }
-
-  const handleTogglePause = async () => {
-    try {
-        const res = await togglePause()
-        setPaused(res.data.is_paused)
-    } catch (e) {
-        console.error(e)
-      setUiError('Nao foi possivel alternar pausa do scan.')
-    }
-  }
-
-  const handleToggleWatcherPause = async () => {
-    try {
-      const res = await toggleWatcherPause()
-      setWatcherPaused(Boolean(res.data.watcher_paused))
-    } catch (e) {
-      console.error(e)
-      setUiError('Nao foi possivel alternar pausa do watcher.')
-    }
-  }
-
-  const handleAskArchive = async (question: string) => {
-    setAskLoading(true)
-    try {
-      setUiError('')
-      const res = await askArchive(question, 8)
-      const entry: AskEntry = {
-        id: Date.now(),
-        question,
-        answer: res.data.answer || '',
-        matches: res.data.matches || [],
-        provider: res.data.provider || '',
-        contextItems: Number(res.data.context_items || 0),
-        retrievedItems: Number(res.data.retrieved_items || 0),
-        createdAt: new Date().toISOString(),
-      }
-
-      setAskHistory((prev) => [entry, ...prev].slice(0, ASK_HISTORY_LIMIT))
-      hydrateAskFromHistory(entry)
-      navigate(`/ask/${entry.id}`)
-    } catch (e) {
-      console.error(e)
-      setUiError('Nao foi possivel consultar o arquivo agora.')
-    } finally {
-      setAskLoading(false)
-    }
-  }
+  const handleOnboardingScanComplete = useCallback(() => loadData({ reset: true, silent: true }), [loadData])
+  const handleOnboardingDismissed = useCallback(() => loadData({ reset: true, silent: true }), [loadData])
 
   if (routePath === '/settings') {
     return <Settings onBack={() => navigate('/')} />
@@ -598,7 +210,7 @@ export default function App() {
     )
   }
 
-  const navigation: { id: string | null; label: string; count?: number; icon: string }[] = [
+  const navigationItems: { id: string | null; label: string; count?: number; icon: string }[] = [
     { id: 'ask', label: 'Ask Mnemosyne', icon: 'M13 10V3L4 14h7v7l9-11h-7z' },
     { id: null, label: 'All Memories', count: stats?.total, icon: 'M4 6h16M4 10h16M4 14h16M4 18h16' },
     { id: 'processed', label: 'Analyzed', count: stats?.processed, icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
@@ -619,13 +231,11 @@ export default function App() {
         </div>
 
         <nav className="flex-grow overflow-y-auto px-6 space-y-10 custom-scrollbar pb-8 pt-2">
-          {/* Main Navigation Section */}
           <div className="space-y-4">
             <p className="px-4 text-[10px] font-bold text-[#7f868d] uppercase tracking-[0.3em] opacity-80">Collections</p>
             <div className="space-y-1">
-              {navigation.map((item) => {
+              {navigationItems.map((item) => {
                 const isActive = (item.id === 'ask' && showAsk) || (statusFilter === item.id && !showAsk)
-
                 return (
                   <button
                     key={item.id}
@@ -637,9 +247,7 @@ export default function App() {
                       } else {
                         setShowAsk(false)
                         setStatusFilter(item.id)
-                        if (routePath.startsWith('/ask')) {
-                          navigate('/')
-                        }
+                        if (routePath.startsWith('/ask')) navigate('/')
                       }
                       setPage(1)
                       setSearchQuery('')
@@ -658,18 +266,14 @@ export default function App() {
                       }`}
                     />
                     <div className="flex items-center gap-4 min-w-0">
-                      <svg className={`w-5 h-5 flex-shrink-0 transition-colors duration-500 ${
-                        isActive ? 'text-[#1a1c1d]' : 'text-[#a3abb2] group-hover:text-[#7f868d]'
-                      }`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg className={`w-5 h-5 flex-shrink-0 transition-colors duration-500 ${isActive ? 'text-[#1a1c1d]' : 'text-[#a3abb2] group-hover:text-[#7f868d]'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.2} d={item.icon} />
                       </svg>
                       <span className="text-sm font-bold tracking-tight truncate">{item.label}</span>
                     </div>
                     {item.count !== undefined && (
                       <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border transition-colors ${
-                        isActive
-                          ? 'bg-white border-[#f0ede9] text-[#1a1c1d] opacity-90'
-                          : 'bg-transparent border-transparent text-[#7f868d] opacity-70 group-hover:bg-white group-hover:border-[#f0ede9]'
+                        isActive ? 'bg-white border-[#f0ede9] text-[#1a1c1d] opacity-90' : 'bg-transparent border-transparent text-[#7f868d] opacity-70 group-hover:bg-white group-hover:border-[#f0ede9]'
                       }`}>
                         {item.count.toLocaleString()}
                       </span>
@@ -689,41 +293,24 @@ export default function App() {
                <div className="space-y-1.5">
                   <div className="flex justify-between text-[10px] font-bold text-[#7f868d] uppercase tracking-widest">
                     <span>{paused ? 'Memories Paused' : 'Restoring Memories'}</span>
-                    <span>{Math.round((scanProgress.done/scanProgress.total)*100 || 0)}%</span>
+                    <span>{Math.round((scanProgress.done / scanProgress.total) * 100 || 0)}%</span>
                   </div>
                   <div className="w-full bg-[#f0ede9] h-1 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full transition-all duration-1000 ease-out ${paused ? 'bg-[#c9c7c3]' : 'bg-[#1a1c1d]'}`}
-                      style={{width: `${(scanProgress.done/scanProgress.total)*100 || 0}%`}}
-                    />
+                    <div className={`h-full transition-all duration-1000 ease-out ${paused ? 'bg-[#c9c7c3]' : 'bg-[#1a1c1d]'}`} style={{ width: `${(scanProgress.done / scanProgress.total) * 100 || 0}%` }} />
                   </div>
                </div>
-
-               <button
-                 onClick={handleTogglePause}
-                 className="w-full text-[10px] font-bold text-[#7f868d] hover:text-[#1a1c1d] uppercase tracking-widest transition py-1"
-               >
+               <button onClick={handleTogglePause} className="w-full text-[10px] font-bold text-[#7f868d] hover:text-[#1a1c1d] uppercase tracking-widest transition py-1">
                   {paused ? 'Resume Analysis' : 'Pause Analysis'}
                </button>
             </div>
           )}
-          <button
-            onClick={handleScanFolder}
-            disabled={scanning}
-            className="w-full btn-secondary text-[10px] py-2.5"
-          >
+          <button onClick={handleScanFolder} disabled={scanning} className="w-full btn-secondary text-[10px] py-2.5">
             {scanning ? (paused ? 'Archive Paused' : 'Flux...') : 'Scan Library'}
           </button>
-          <button
-            onClick={handleToggleWatcherPause}
-            className="w-full btn-secondary text-[10px] py-2.5"
-          >
+          <button onClick={handleToggleWatcherPause} className="w-full btn-secondary text-[10px] py-2.5">
             {watcherPaused ? 'Resume Watcher' : 'Pause Watcher'}
           </button>
-          <button
-            onClick={() => navigate('/settings')}
-            className="w-full btn-primary text-[10px] py-2.5"
-          >
+          <button onClick={() => navigate('/settings')} className="w-full btn-primary text-[10px] py-2.5">
             Settings
           </button>
         </div>
@@ -731,15 +318,8 @@ export default function App() {
 
       {/* MAIN CONTENT */}
       <main className="flex-grow flex flex-col min-w-0 bg-[#fdfcfb]/90 backdrop-blur-md relative overflow-hidden">
-        {showAsk && (
-          <>
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_15%,rgba(180,83,9,0.05),transparent_45%),radial-gradient(circle_at_80%_30%,rgba(26,28,29,0.04),transparent_50%)]" />
-          </>
-        )}
-        <div
-          ref={scrollContainerRef}
-          className={`flex-grow overflow-y-auto custom-scrollbar ${showAsk ? 'p-0' : 'p-12 md:p-16'}`}
-        >
+        {showAsk && <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_15%,rgba(180,83,9,0.05),transparent_45%),radial-gradient(circle_at_80%_30%,rgba(26,28,29,0.04),transparent_50%)]" />}
+        <div ref={scrollContainerRef} className={`flex-grow overflow-y-auto custom-scrollbar ${showAsk ? 'p-0' : 'p-12 md:p-16'}`}>
           {showAsk && (
             <AskArchivePanel
               onAsk={handleAskArchive}
@@ -763,9 +343,9 @@ export default function App() {
               }}
               onOpenMatch={openScreenshot}
               dateFrom={dateFrom}
-              setDateFrom={(v) => { setDateFrom(v); setPage(1); }}
+              setDateFrom={(v) => { setDateFrom(v); setPage(1) }}
               dateTo={dateTo}
-              setDateTo={(v) => { setDateTo(v); setPage(1); }}
+              setDateTo={(v) => { setDateTo(v); setPage(1) }}
             />
           )}
 
@@ -793,30 +373,12 @@ export default function App() {
               </div>
               <div className="flex items-center gap-3 w-full max-w-4xl justify-end">
                 <div className="flex items-center gap-1 rounded-2xl border border-[#ece7dd] bg-white/80 p-1.5 shadow-sm">
-                  <button
-                    onClick={() => setViewMode('grid')}
-                    className={`h-9 w-9 rounded-xl transition-all duration-300 flex items-center justify-center ${
-                      viewMode === 'grid'
-                        ? 'bg-[#1a1c1d] text-white'
-                        : 'text-[#7f868d] hover:text-[#1a1c1d] hover:bg-white'
-                    }`}
-                    aria-label="Grid view"
-                    title="Grid view"
-                  >
+                  <button onClick={() => setViewMode('grid')} className={`h-9 w-9 rounded-xl transition-all duration-300 flex items-center justify-center ${viewMode === 'grid' ? 'bg-[#1a1c1d] text-white' : 'text-[#7f868d] hover:text-[#1a1c1d] hover:bg-white'}`} aria-label="Grid view" title="Grid view">
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm10 0h6v6h-6v-6z" />
                     </svg>
                   </button>
-                  <button
-                    onClick={() => setViewMode('list')}
-                    className={`h-9 w-9 rounded-xl transition-all duration-300 flex items-center justify-center ${
-                      viewMode === 'list'
-                        ? 'bg-[#1a1c1d] text-white'
-                        : 'text-[#7f868d] hover:text-[#1a1c1d] hover:bg-white'
-                    }`}
-                    aria-label="List view"
-                    title="List view"
-                  >
+                  <button onClick={() => setViewMode('list')} className={`h-9 w-9 rounded-xl transition-all duration-300 flex items-center justify-center ${viewMode === 'list' ? 'bg-[#1a1c1d] text-white' : 'text-[#7f868d] hover:text-[#1a1c1d] hover:bg-white'}`} aria-label="List view" title="List view">
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />
                     </svg>
@@ -853,67 +415,23 @@ export default function App() {
                       <div className="rounded-2xl border border-[#ece7dd] bg-white/62 backdrop-blur-md px-5 py-4">
                         <div className="flex flex-wrap items-center gap-2">
                           {sortedTopApps.slice(0, 10).map((item) => (
-                            <button
-                              key={item.app}
-                              onClick={() => handleAppClick(item.app)}
-                              disabled={hasActiveFilter && !activeApps.includes(item.app) && !hasMatchForApp(item.app)}
-                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all duration-500 ${
-                                activeApps.includes(item.app)
-                                  ? 'bg-[#9a3412] text-white border border-[#9a3412] shadow-[0_8px_20px_-14px_rgba(154,52,18,0.6)]'
-                                  : hasActiveFilter && !hasMatchForApp(item.app)
-                                    ? 'bg-[#fff4ea]/50 text-[#c9a98e] border border-[#f3dcc7]/60 opacity-60 cursor-not-allowed'
-                                    : 'bg-[#fff4ea] text-[#9a4d18] border border-[#efd4bb] hover:border-[#c2410c] hover:text-[#c2410c] hover:bg-[#ffeddc]'
-                              }`}
-                              title={`${item.count} captures`}
-                            >
+                            <button key={item.app} onClick={() => handleAppClick(item.app)} disabled={hasActiveFilter && !activeApps.includes(item.app) && !hasMatchForApp(item.app)} className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all duration-500 ${activeApps.includes(item.app) ? 'bg-[#9a3412] text-white border border-[#9a3412] shadow-[0_8px_20px_-14px_rgba(154,52,18,0.6)]' : hasActiveFilter && !hasMatchForApp(item.app) ? 'bg-[#fff4ea]/50 text-[#c9a98e] border border-[#f3dcc7]/60 opacity-60 cursor-not-allowed' : 'bg-[#fff4ea] text-[#9a4d18] border border-[#efd4bb] hover:border-[#c2410c] hover:text-[#c2410c] hover:bg-[#ffeddc]'}`} title={`${item.count} captures`}>
                               <span>{formatAppLabel(item.app)}</span>
-                              <span className={`text-[9px] font-semibold leading-none tracking-tight ${
-                                activeApps.includes(item.app)
-                                  ? 'text-white/85'
-                                  : 'text-[#9a4d18]/70'
-                              }`}>
-                                {item.count}
-                              </span>
+                              <span className={`text-[9px] font-semibold leading-none tracking-tight ${activeApps.includes(item.app) ? 'text-white/85' : 'text-[#9a4d18]/70'}`}>{item.count}</span>
                             </button>
                           ))}
-
                           {sortedConceptTags.slice(0, 18).map((tag) => (
-                            <button
-                              key={tag}
-                              onClick={() => handleTagClick(tag)}
-                              disabled={hasActiveFilter && !activeTags.includes(tag) && !hasMatchForTag(tag)}
-                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all duration-500 ${
-                                activeTags.includes(tag)
-                                  ? 'bg-[#1a1c1d] text-white'
-                                  : hasActiveFilter && !hasMatchForTag(tag)
-                                    ? 'bg-white/60 text-[#c3c8cf] border border-[#ece7dd]/60 opacity-60 cursor-not-allowed'
-                                    : 'bg-white/80 text-[#7f868d] border border-[#ece7dd] hover:border-[#1a1c1d] hover:text-[#1a1c1d]'
-                              }`}
-                            >
+                            <button key={tag} onClick={() => handleTagClick(tag)} disabled={hasActiveFilter && !activeTags.includes(tag) && !hasMatchForTag(tag)} className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold rounded-lg transition-all duration-500 ${activeTags.includes(tag) ? 'bg-[#1a1c1d] text-white' : hasActiveFilter && !hasMatchForTag(tag) ? 'bg-white/60 text-[#c3c8cf] border border-[#ece7dd]/60 opacity-60 cursor-not-allowed' : 'bg-white/80 text-[#7f868d] border border-[#ece7dd] hover:border-[#1a1c1d] hover:text-[#1a1c1d]'}`}>
                               <span>#{tag}</span>
-                              <span className={`text-[9px] font-semibold leading-none tracking-tight ${
-                                activeTags.includes(tag)
-                                  ? 'text-white/85'
-                                  : 'text-[#7f868d]/70'
-                              }`}>
-                                {tagCounts.get(tag) || 0}
-                              </span>
+                              <span className={`text-[9px] font-semibold leading-none tracking-tight ${activeTags.includes(tag) ? 'text-white/85' : 'text-[#7f868d]/70'}`}>{tagCounts.get(tag) || 0}</span>
                             </button>
                           ))}
                         </div>
                       </div>
                     </div>
                   )}
-
-                  <ScreenshotList
-                    screenshots={filteredScreenshots}
-                    onSelect={openScreenshot}
-                    onRefresh={() => loadData({ reset: true, silent: true })}
-                    onDelete={handleDelete}
-                    viewMode={viewMode}
-                  />
+                  <ScreenshotList screenshots={screenshots} onSelect={openScreenshot} onRefresh={() => loadData({ reset: true, silent: true })} onDelete={handleDelete} viewMode={viewMode} />
                 </div>
-
                 <div className="pb-16 border-t border-[#f1f2f6] pt-10 space-y-4">
                   <div ref={loadMoreRef} className="h-1" />
                   {loadingMore && (
@@ -931,25 +449,14 @@ export default function App() {
           )}
         </div>
 
-        {/* Global Archive Range Pill - Fixed at bottom of main area, only visible in Gallery */}
         {!showAsk && (
           <div className="absolute bottom-10 left-0 right-0 flex justify-center items-center pointer-events-none z-40">
              <div className="flex items-center gap-10 bg-white/95 backdrop-blur-2xl border border-[#e8e2d9] px-10 py-5 rounded-3xl shadow-[0_20px_50px_-15px_rgba(15,23,42,0.12)] hover:shadow-[0_40px_80px_-20px_rgba(15,23,42,0.18)] hover:border-[#1a1c1d]/20 transition-all duration-700 pointer-events-auto group">
                 <span className="text-[10px] font-bold text-[#b45309] uppercase tracking-[0.4em] transition-colors opacity-80">Archive Range</span>
                 <div className="flex items-center gap-6">
-                    <input
-                      type="date"
-                      value={dateFrom}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) => { setDateFrom(e.target.value); setPage(1); }}
-                      className="bg-transparent border-none text-[13px] text-[#1a1c1d] focus:ring-0 p-0 w-32 font-serif italic font-bold"
-                    />
+                    <input type="date" value={dateFrom} onChange={(e: ChangeEvent<HTMLInputElement>) => { setDateFrom(e.target.value); setPage(1) }} className="bg-transparent border-none text-[13px] text-[#1a1c1d] focus:ring-0 p-0 w-32 font-serif italic font-bold" />
                     <div className="w-px h-5 bg-[#e8e2d9]" />
-                    <input
-                      type="date"
-                      value={dateTo}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) => { setDateTo(e.target.value); setPage(1); }}
-                      className="bg-transparent border-none text-[13px] text-[#1a1c1d] focus:ring-0 p-0 w-32 font-serif italic font-bold"
-                    />
+                    <input type="date" value={dateTo} onChange={(e: ChangeEvent<HTMLInputElement>) => { setDateTo(e.target.value); setPage(1) }} className="bg-transparent border-none text-[13px] text-[#1a1c1d] focus:ring-0 p-0 w-32 font-serif italic font-bold" />
                 </div>
              </div>
           </div>
@@ -959,11 +466,11 @@ export default function App() {
       <OnboardingModal
         data={onboarding}
         onClose={() => setOnboarding(null)}
-        onScanComplete={() => loadData({ reset: true, silent: true })}
-        onDismissed={() => loadData({ reset: true, silent: true })}
+        onScanComplete={handleOnboardingScanComplete}
+        onDismissed={handleOnboardingDismissed}
         onStartBackgroundScan={() => {
-            setScanning(true);
-            setScanProgress({ queued: 0, total: onboarding?.unregistered || 0, done: 0, current_file: null });
+            setScanning(true)
+            setScanProgress({ queued: 0, total: onboarding?.unregistered || 0, done: 0, current_file: null })
         }}
       />
     </div>

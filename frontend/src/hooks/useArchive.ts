@@ -1,17 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { getScreenshots, getScreenshot, getStats, getTags, getStatus, getHealth, searchScreenshots } from '../api.ts'
+import { getScreenshots, getStats, getTags, getStatus, getHealth, searchScreenshots } from '../api.ts'
 import type { Screenshot, Stats } from '../types/index.ts'
-
-function normalizeTags(rawTags: unknown): string[] {
-  if (Array.isArray(rawTags)) return rawTags as string[]
-  if (typeof rawTags !== 'string') return []
-  try {
-    const parsed = JSON.parse(rawTags)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
 
 interface UseArchiveFilters {
   statusFilter: string | null
@@ -74,8 +63,6 @@ export function useArchive(initialStatusFilter: string | null = null): UseArchiv
   const statsRef = useRef<Stats | null>(null)
   const activeTagsRef = useRef(activeTags)
   const activeAppsRef = useRef(activeApps)
-  const loadingMoreRef = useRef(false)
-  const loadMoreRequestRef = useRef(false)
 
   useEffect(() => {
     activeTagsRef.current = activeTags
@@ -91,7 +78,7 @@ export function useArchive(initialStatusFilter: string | null = null): UseArchiv
 
   const loadMeta = useCallback(async () => {
     try {
-      const [statsRes, tagsRes, statusRes, healthRes] = await Promise.all([
+      const [statsRes, tagsRes, _statusRes, _healthRes] = await Promise.all([
         getStats(),
         getTags(),
         getStatus(),
@@ -118,7 +105,6 @@ export function useArchive(initialStatusFilter: string | null = null): UseArchiv
 
       if (reset && !silent) setLoading(true)
       if (!reset) setLoadingMore(true)
-      if (!reset) loadingMoreRef.current = true
 
       try {
         setUiError('')
@@ -148,7 +134,6 @@ export function useArchive(initialStatusFilter: string | null = null): UseArchiv
       } finally {
         setLoading(false)
         setLoadingMore(false)
-        if (!reset) loadingMoreRef.current = false
       }
     },
     [page, statusFilter, dateFrom, dateTo, searchQuery, loadMeta],
