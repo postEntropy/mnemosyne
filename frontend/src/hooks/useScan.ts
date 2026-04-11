@@ -74,8 +74,8 @@ export function useScan(onScanComplete?: () => void): UseScanReturn {
           onScanComplete?.()
         }
 
-        // Safety net: stop polling after 10 minutes.
-        if (Date.now() - startedAt > 10 * 60 * 1000) {
+        // Safety net: stop polling after 30 minutes for very large libraries.
+        if (Date.now() - startedAt > 30 * 60 * 1000) {
           setScanning(false)
           setScanProgress(null)
         }

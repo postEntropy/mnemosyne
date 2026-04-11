@@ -14,7 +14,7 @@ import { useAskArchive } from './hooks/useAskArchive.ts'
 import { useArchive } from './hooks/useArchive.ts'
 
 export default function App() {
-  const { routePath, navigate } = useNavigation()
+  const { routePath, navigate, replaceNavigate } = useNavigation()
   const { scanning, scanProgress, paused, watcherPaused, handleScanFolder, handleTogglePause, handleToggleWatcherPause, setScanning, setScanProgress } = useScan(() => loadData({ reset: true }))
   const { askLoading, askAnswer, askMatches, askContextItems, askRetrievedItems, askSuggestions, askHistory, activeAskHistoryId, askQuestionSeed, handleAskArchive, hydrateAskFromHistory, setActiveAskHistoryId } = useAskArchive((msg) => setUiError(msg))
   const { screenshots, stats, tags, hasMorePages, loading, loadingMore, showAsk, viewMode, uiError, filters, loadData, setShowAsk, setViewMode, setUiError, setPage } = useArchive(null)
@@ -42,7 +42,7 @@ export default function App() {
     const idPart = routePath.split('/')[2]
     const screenshotId = Number(idPart)
     if (!Number.isFinite(screenshotId)) {
-      window.history.replaceState({}, '', '/')
+      replaceNavigate('/')
       return
     }
     if (selected?.id === screenshotId) return
@@ -52,7 +52,7 @@ export default function App() {
       .then((res) => setSelected(res.data))
       .catch(() => {
         setUiError('Nao foi possivel abrir esta captura.')
-        window.history.replaceState({}, '', '/')
+        replaceNavigate('/')
       })
   }, [routePath, screenshots, selected])
 
@@ -70,8 +70,8 @@ export default function App() {
     const askId = routePath.split('/')[2]
     const existing = askHistory.find((item) => String(item.id) === String(askId))
     if (existing) { hydrateAskFromHistory(existing); return }
-    window.history.replaceState({}, '', '/ask')
-  }, [routePath, askHistory, hydrateAskFromHistory])
+    replaceNavigate('/ask')
+  }, [routePath, askHistory, hydrateAskFromHistory, replaceNavigate])
 
   // Onboarding + initial load
   useEffect(() => {
